@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../data/team_service.dart';
-import 'tournament_fixture_page.dart';
 import 'player_review_page.dart';
+import 'tournament_fixture_page.dart';
 
 class TournamentPlayersPage extends StatefulWidget {
   final int tournamentId;
@@ -23,8 +26,11 @@ class _TournamentPlayersPageState extends State<TournamentPlayersPage> {
 
   List<Map<String, dynamic>> players = [];
   List<Map<String, dynamic>> teams = [];
+
   bool isLoading = true;
   bool isGenerating = false;
+
+  StreamSubscription<List<Map<String, dynamic>>>? _playersSubscription;
 
   @override
   void initState() {
@@ -33,48 +39,69 @@ class _TournamentPlayersPageState extends State<TournamentPlayersPage> {
     _loadTeams();
   }
 
+  void _safeSetState(VoidCallback fn) {
+    if (!mounted) return;
+    setState(fn);
+  }
+
+  void _showSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
   void _listenPlayers() {
     final client = Supabase.instance.client;
 
-    client
+    _playersSubscription?.cancel();
+
+    _playersSubscription = client
         .from('tournament_players')
         .stream(primaryKey: ['id'])
         .eq('tournament_id', widget.tournamentId)
-        .listen((data) {
-      setState(() {
-        players = List<Map<String, dynamic>>.from(data);
-        isLoading = false;
-      });
-    });
+        .listen(
+      (data) {
+        _safeSetState(() {
+          players = List<Map<String, dynamic>>.from(data);
+          isLoading = false;
+        });
+      },
+      onError: (error) {
+        _safeSetState(() {
+          isLoading = false;
+        });
+        _showSnackBar('Error cargando jugadores');
+      },
+    );
   }
 
   Future<void> _loadTeams() async {
     try {
       final result = await _teamService.getTeamsWithPlayers(widget.tournamentId);
 
-      setState(() {
+      _safeSetState(() {
         teams = result;
       });
-    } catch (_) {}
+    } catch (e) {
+      _showSnackBar('Error cargando equipos');
+    }
   }
 
   Future<void> _generateTeams() async {
     if (players.length < 2) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Se necesitan al menos 2 jugadores para generar equipos'),
-        ),
-      );
+      _showSnackBar('Se necesitan al menos 2 jugadores para generar equipos');
       return;
     }
 
-    setState(() {
+    _safeSetState(() {
       isGenerating = true;
     });
 
     try {
       final names = players
-          .map((player) => player['player_name'] as String)
+          .map((player) => (player['player_name'] ?? '').toString())
+          .where((name) => name.trim().isNotEmpty)
           .toList();
 
       await _teamService.generateTeams(
@@ -84,22 +111,21 @@ class _TournamentPlayersPageState extends State<TournamentPlayersPage> {
 
       await _loadTeams();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Equipos generados correctamente'),
-        ),
-      );
+      _showSnackBar('Equipos generados correctamente');
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error generando equipos: $e'),
-        ),
-      );
+      _showSnackBar('Error generando equipos: $e');
     } finally {
-      setState(() {
+      _safeSetState(() {
         isGenerating = false;
       });
     }
+  }
+
+  @override
+  void dispose() {
+    _playersSubscription?.cancel();
+    _playersSubscription = null;
+    super.dispose();
   }
 
   @override
@@ -135,7 +161,9 @@ class _TournamentPlayersPageState extends State<TournamentPlayersPage> {
                   onPressed: isGenerating ? null : _generateTeams,
                   icon: const Icon(Icons.groups),
                   label: Text(
-                    isGenerating ? 'Generando...' : 'Generar equipos automáticos',
+                    isGenerating
+                        ? 'Generando...'
+                        : 'Generar equipos automáticos',
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -159,7 +187,7 @@ class _TournamentPlayersPageState extends State<TournamentPlayersPage> {
                     (player) => Card(
                       child: ListTile(
                         leading: const Icon(Icons.person),
-                        title: Text(player['player_name'] ?? ''),
+                        title: Text((player['player_name'] ?? '').toString()),
                         subtitle: const Text('Jugador confirmado'),
                         trailing: IconButton(
                           icon: const Icon(Icons.star_outline),
@@ -167,11 +195,7 @@ class _TournamentPlayersPageState extends State<TournamentPlayersPage> {
                             final userId = player['user_id'];
 
                             if (userId == null) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Este jugador no tiene user_id'),
-                                ),
-                              );
+                              _showSnackBar('Este jugador no tiene user_id');
                               return;
                             }
 
@@ -181,7 +205,9 @@ class _TournamentPlayersPageState extends State<TournamentPlayersPage> {
                                 builder: (_) => PlayerReviewPage(
                                   tournamentId: widget.tournamentId,
                                   reviewedUserId: userId,
-                                  playerName: player['player_name'] ?? 'Jugador',
+                                  playerName:
+                                      (player['player_name'] ?? 'Jugador')
+                                          .toString(),
                                 ),
                               ),
                             );
@@ -209,7 +235,7 @@ class _TournamentPlayersPageState extends State<TournamentPlayersPage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              team['name'] ?? '',
+                              (team['name'] ?? '').toString(),
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
@@ -221,7 +247,9 @@ class _TournamentPlayersPageState extends State<TournamentPlayersPage> {
                             ).map(
                               (player) => Padding(
                                 padding: const EdgeInsets.only(bottom: 8),
-                                child: Text('• ${player['player_name']}'),
+                                child: Text(
+                                  '• ${(player['player_name'] ?? '').toString()}',
+                                ),
                               ),
                             ),
                           ],
