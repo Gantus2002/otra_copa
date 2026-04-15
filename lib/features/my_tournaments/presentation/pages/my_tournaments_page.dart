@@ -1,133 +1,100 @@
 import 'package:flutter/material.dart';
-import '../../../tournament_detail/presentation/pages/tournament_detail_page.dart';
+import '../../../tournaments/data/tournament_remote_service.dart';
+import '../../../admin/presentation/pages/admin_page.dart';
 
-class MyTournamentsPage extends StatelessWidget {
+class MyTournamentsPage extends StatefulWidget {
   const MyTournamentsPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final tournaments = [
-      {
-        'name': 'Copa Universidad',
-        'date': '20/04/2026',
-        'location': 'Asunción',
-        'status': 'Próximo partido',
-        'role': 'Jugador',
-        'type': 'Liga',
-        'mode': '5 vs 5',
-        'category': 'Masculino',
-      },
-      {
-        'name': 'Torneo Apertura 2026',
-        'date': '25/04/2026',
-        'location': 'San Lorenzo',
-        'status': 'Inscripción confirmada',
-        'role': 'Jugador',
-        'type': 'Eliminatoria',
-        'mode': '7 vs 7',
-        'category': 'Mixto',
-      },
-      {
-        'name': 'Relámpago F5',
-        'date': '27/04/2026',
-        'location': 'Luque',
-        'status': 'Organizando',
-        'role': 'Organizador',
-        'type': 'Relámpago',
-        'mode': '5 vs 5',
-        'category': 'Femenino',
-      },
-    ];
+  State<MyTournamentsPage> createState() => _MyTournamentsPageState();
+}
 
+class _MyTournamentsPageState extends State<MyTournamentsPage> {
+  final TournamentRemoteService _service = TournamentRemoteService();
+
+  bool isLoading = true;
+  List<Map<String, dynamic>> tournaments = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTournaments();
+  }
+
+  Future<void> _loadTournaments() async {
+    try {
+      final data = await _service.getMyCreatedTournaments();
+
+      setState(() {
+        tournaments = data;
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error cargando torneos: $e'),
+        ),
+      );
+    } finally {
+      setState(() {
+        isLoading = false;
+      });
+    }
+  }
+
+  String _typeLabel(Map<String, dynamic> tournament) {
+    final type = tournament['tournament_type']?.toString() ?? 'Torneo';
+    final official = tournament['is_official'] == true;
+
+    return official ? '$type • Oficial' : '$type • No oficial';
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Mis torneos'),
       ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Text(
-              'Tus torneos activos',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Acá vas a poder ver todos los torneos en los que participás o administrás.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              decoration: const InputDecoration(
-                hintText: 'Buscar en mis torneos',
-                prefixIcon: Icon(Icons.search),
-              ),
-            ),
-            const SizedBox(height: 20),
-            ...tournaments.map(
-              (tournament) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Card(
-                  child: Padding(
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : tournaments.isEmpty
+              ? const Center(
+                  child: Text('Todavía no creaste torneos'),
+                )
+              : RefreshIndicator(
+                  onRefresh: _loadTournaments,
+                  child: ListView.builder(
                     padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          tournament['name']!,
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleMedium
-                              ?.copyWith(fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 8),
-                        Text('Fecha: ${tournament['date']}'),
-                        Text('Ubicación: ${tournament['location']}'),
-                        Text('Estado: ${tournament['status']}'),
-                        Text('Rol: ${tournament['role']}'),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => TournamentDetailPage(
-                                        name: tournament['name']!,
-                                        date: tournament['date']!,
-                                        location: tournament['location']!,
-                                        type: tournament['type']!,
-                                        mode: tournament['mode']!,
-                                        category: tournament['category']!,
-                                      ),
-                                    ),
-                                  );
-                                },
-                                child: const Text('Ver torneo'),
+                    itemCount: tournaments.length,
+                    itemBuilder: (context, index) {
+                      final tournament = tournaments[index];
+
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        child: ListTile(
+                          leading: const Icon(Icons.emoji_events_outlined),
+                          title: Text(tournament['name']?.toString() ?? 'Torneo'),
+                          subtitle: Text(
+                            '${tournament['location'] ?? ''}\n${_typeLabel(tournament)}',
+                          ),
+                          isThreeLine: true,
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => AdminPage(
+                                  tournamentId: tournament['id'] as int,
+                                  tournamentName:
+                                      tournament['name']?.toString() ?? 'Torneo',
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: ElevatedButton(
-                                onPressed: () {},
-                                child: const Text('Ver partido'),
-                              ),
-                            ),
-                          ],
+                            );
+                          },
                         ),
-                      ],
-                    ),
+                      );
+                    },
                   ),
                 ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

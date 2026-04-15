@@ -36,7 +36,10 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
         selectedCity: widget.selectedCity,
       ),
       const MyTournamentsPage(),
-      const ProfilePage(),
+      ProfilePage(
+        isDarkMode: widget.isDarkMode,
+        onThemeChanged: widget.onThemeChanged,
+      ),
     ];
 
     return Scaffold(

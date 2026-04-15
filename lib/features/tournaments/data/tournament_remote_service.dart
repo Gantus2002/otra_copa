@@ -8,6 +8,7 @@ class TournamentRemoteService {
     required String tournamentType,
     required String gameMode,
     required String category,
+    required bool isOfficial,
     String? inviteCode,
   }) async {
     final user = Supabase.instance.client.auth.currentUser;
@@ -24,6 +25,7 @@ class TournamentRemoteService {
       'category': category,
       'invite_code': inviteCode,
       'owner_id': user.id,
+      'is_official': isOfficial,
     });
   }
 
@@ -48,7 +50,32 @@ class TournamentRemoteService {
         .from('tournaments')
         .select()
         .eq('owner_id', user.id)
-        .order('id');
+        .order('id', ascending: false);
+
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  Future<List<Map<String, dynamic>>> getMyCreatedTournaments() async {
+    final user = Supabase.instance.client.auth.currentUser;
+
+    if (user == null) {
+      throw Exception('No hay usuario autenticado');
+    }
+
+    final response = await SupabaseService.client
+        .from('tournaments')
+        .select()
+        .eq('owner_id', user.id)
+        .order('id', ascending: false);
+
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  Future<List<Map<String, dynamic>>> getAllVisibleTournaments() async {
+    final response = await SupabaseService.client
+        .from('tournaments')
+        .select()
+        .order('id', ascending: false);
 
     return List<Map<String, dynamic>>.from(response);
   }

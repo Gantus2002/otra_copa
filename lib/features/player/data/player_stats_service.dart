@@ -34,12 +34,31 @@ class PlayerStatsService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getPlayerStats(String userId) async {
-    final response = await SupabaseService.client
+  Future<List<Map<String, dynamic>>> getPlayerStatsWithTournamentNames(
+    String userId,
+  ) async {
+    final statsResponse = await SupabaseService.client
         .from('player_stats')
         .select()
         .eq('user_id', userId);
 
-    return List<Map<String, dynamic>>.from(response);
+    final stats = List<Map<String, dynamic>>.from(statsResponse);
+
+    final tournamentsResponse = await SupabaseService.client
+        .from('tournaments')
+        .select('id, name');
+
+    final tournaments = List<Map<String, dynamic>>.from(tournamentsResponse);
+
+    for (final stat in stats) {
+      final tournament = tournaments.firstWhere(
+        (t) => t['id'] == stat['tournament_id'],
+        orElse: () => {'name': 'Torneo'},
+      );
+
+      stat['tournament_name'] = tournament['name'];
+    }
+
+    return stats;
   }
 }

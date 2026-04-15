@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../data/team_service.dart';
 import 'tournament_fixture_page.dart';
-import 'standings_page.dart';
+import 'player_review_page.dart';
 
 class TournamentPlayersPage extends StatefulWidget {
   final int tournamentId;
@@ -108,24 +108,24 @@ class _TournamentPlayersPageState extends State<TournamentPlayersPage> {
 
     return Scaffold(
       appBar: AppBar(
-  title: Text('Fixture - ${widget.tournamentName}'),
-  actions: [
-    IconButton(
-      icon: const Icon(Icons.emoji_events),
-      onPressed: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => StandingsPage(
-              tournamentId: widget.tournamentId,
-              tournamentName: widget.tournamentName,
-            ),
+        title: Text('Jugadores - ${widget.tournamentName}'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.calendar_month),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => TournamentFixturePage(
+                    tournamentId: widget.tournamentId,
+                    tournamentName: widget.tournamentName,
+                  ),
+                ),
+              );
+            },
           ),
-        );
-      },
-    ),
-  ],
-),
+        ],
+      ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
@@ -161,6 +161,32 @@ class _TournamentPlayersPageState extends State<TournamentPlayersPage> {
                         leading: const Icon(Icons.person),
                         title: Text(player['player_name'] ?? ''),
                         subtitle: const Text('Jugador confirmado'),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.star_outline),
+                          onPressed: () {
+                            final userId = player['user_id'];
+
+                            if (userId == null) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Este jugador no tiene user_id'),
+                                ),
+                              );
+                              return;
+                            }
+
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => PlayerReviewPage(
+                                  tournamentId: widget.tournamentId,
+                                  reviewedUserId: userId,
+                                  playerName: player['player_name'] ?? 'Jugador',
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ),
                   ),

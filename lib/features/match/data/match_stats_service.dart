@@ -6,6 +6,14 @@ class MatchStatsService {
     required int tournamentId,
     required List<Map<String, dynamic>> playersStats,
   }) async {
+    final tournament = await SupabaseService.client
+        .from('tournaments')
+        .select('is_official')
+        .eq('id', tournamentId)
+        .maybeSingle();
+
+    final bool isOfficial = tournament?['is_official'] == true;
+
     for (final player in playersStats) {
       await SupabaseService.client.from('match_player_stats').insert({
         'match_id': matchId,
@@ -13,6 +21,10 @@ class MatchStatsService {
         'goals': player['goals'],
         'is_mvp': player['is_mvp'],
       });
+
+      if (!isOfficial) {
+        continue;
+      }
 
       final existing = await SupabaseService.client
           .from('player_stats')
@@ -35,8 +47,7 @@ class MatchStatsService {
             .update({
               'goals': (existing['goals'] ?? 0) + player['goals'],
               'mvp': (existing['mvp'] ?? 0) + (player['is_mvp'] ? 1 : 0),
-              'matches_played':
-                  (existing['matches_played'] ?? 0) + 1,
+              'matches_played': (existing['matches_played'] ?? 0) + 1,
             })
             .eq('id', existing['id']);
       }

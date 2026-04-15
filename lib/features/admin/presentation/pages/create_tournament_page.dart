@@ -1,6 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../tournaments/data/tournament_remote_service.dart';
 
 class CreateTournamentPage extends StatefulWidget {
@@ -31,8 +31,56 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
   bool hasCardSanctions = true;
   bool acceptedTerms = false;
   bool isLoading = false;
+  bool isOfficial = false;
+
+  bool canCreateOfficial = false;
+  bool loadingPermissions = true;
+  String currentRole = 'player';
+  bool currentVerified = false;
 
   String? generatedCode;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPermissions();
+  }
+
+  Future<void> _loadPermissions() async {
+    final user = Supabase.instance.client.auth.currentUser;
+
+    if (user == null) {
+      setState(() {
+        loadingPermissions = false;
+      });
+      return;
+    }
+
+    try {
+      final profile = await Supabase.instance.client
+          .from('profiles')
+          .select('role, verified')
+          .eq('id', user.id)
+          .maybeSingle();
+
+      final role = (profile?['role'] ?? 'player').toString();
+      final verified = profile?['verified'] == true;
+
+      final allowed =
+          verified && (role == 'organizer' || role == 'venue');
+
+      setState(() {
+        currentRole = role;
+        currentVerified = verified;
+        canCreateOfficial = allowed;
+        loadingPermissions = false;
+      });
+    } catch (_) {
+      setState(() {
+        loadingPermissions = false;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -64,6 +112,17 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
       return;
     }
 
+    if (isOfficial && !canCreateOfficial) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Solo perfiles verificados como cancha u organización pueden crear torneos oficiales.',
+          ),
+        ),
+      );
+      return;
+    }
+
     setState(() {
       isLoading = true;
     });
@@ -81,6 +140,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
         tournamentType: tournamentType,
         gameMode: gameMode,
         category: category,
+        isOfficial: isOfficial,
         inviteCode: code,
       );
 
@@ -92,8 +152,8 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
         SnackBar(
           content: Text(
             tournamentType == 'Por invitación'
-                ? 'Torneo guardado en Supabase. Código: $code'
-                : 'Torneo guardado en Supabase.',
+                ? 'Torneo guardado. Código: $code'
+                : 'Torneo guardado correctamente.',
           ),
         ),
       );
@@ -108,6 +168,18 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
         isLoading = false;
       });
     }
+  }
+
+  String _officialSubtitle() {
+    if (loadingPermissions) {
+      return 'Verificando permisos...';
+    }
+
+    if (canCreateOfficial) {
+      return 'Tu perfil está habilitado para crear torneos oficiales.';
+    }
+
+    return 'Solo perfiles verificados como cancha u organización pueden activar esta opción.';
   }
 
   @override
@@ -135,7 +207,28 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 'Completá los datos principales para publicar un torneo.',
                 style: theme.textTheme.bodyMedium,
               ),
+              const SizedBox(height: 12),
+
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Tu rol actual: $currentRole'),
+                      const SizedBox(height: 4),
+                      Text(
+                        currentVerified
+                            ? 'Perfil verificado'
+                            : 'Perfil no verificado',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
               const SizedBox(height: 20),
+
               TextFormField(
                 controller: nameController,
                 decoration: const InputDecoration(
@@ -149,6 +242,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 },
               ),
               const SizedBox(height: 12),
+
               TextFormField(
                 controller: locationController,
                 decoration: const InputDecoration(
@@ -162,6 +256,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 },
               ),
               const SizedBox(height: 12),
+
               DropdownButtonFormField<String>(
                 initialValue: tournamentType,
                 decoration: const InputDecoration(
@@ -180,6 +275,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 },
               ),
               const SizedBox(height: 12),
+
               DropdownButtonFormField<String>(
                 initialValue: gameMode,
                 decoration: const InputDecoration(
@@ -199,6 +295,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 },
               ),
               const SizedBox(height: 12),
+
               DropdownButtonFormField<String>(
                 initialValue: category,
                 decoration: const InputDecoration(
@@ -216,6 +313,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 },
               ),
               const SizedBox(height: 12),
+
               TextFormField(
                 decoration: const InputDecoration(
                   labelText: 'Fecha de inicio',
@@ -229,6 +327,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 },
               ),
               const SizedBox(height: 12),
+
               TextFormField(
                 controller: teamsController,
                 keyboardType: TextInputType.number,
@@ -243,6 +342,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 },
               ),
               const SizedBox(height: 12),
+
               TextFormField(
                 controller: costController,
                 keyboardType: TextInputType.number,
@@ -257,6 +357,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 },
               ),
               const SizedBox(height: 12),
+
               TextFormField(
                 controller: prizesController,
                 decoration: const InputDecoration(
@@ -270,6 +371,24 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 },
               ),
               const SizedBox(height: 20),
+
+              Card(
+                child: SwitchListTile(
+                  value: isOfficial,
+                  onChanged: canCreateOfficial
+                      ? (value) {
+                          setState(() {
+                            isOfficial = value;
+                          });
+                        }
+                      : null,
+                  title: const Text('Torneo oficial'),
+                  subtitle: Text(_officialSubtitle()),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
               Text(
                 'Reglas del torneo',
                 style: theme.textTheme.titleLarge?.copyWith(
@@ -277,6 +396,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 ),
               ),
               const SizedBox(height: 12),
+
               SwitchListTile(
                 value: hasReferees,
                 onChanged: (value) {
@@ -286,6 +406,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 },
                 title: const Text('¿Con árbitros?'),
               ),
+
               SwitchListTile(
                 value: hasOffside,
                 onChanged: (value) {
@@ -295,6 +416,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 },
                 title: const Text('¿Se aplica offside?'),
               ),
+
               SwitchListTile(
                 value: hasCardSanctions,
                 onChanged: (value) {
@@ -304,7 +426,9 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 },
                 title: const Text('¿Sanciones por tarjetas?'),
               ),
+
               const SizedBox(height: 12),
+
               DropdownButtonFormField<String>(
                 initialValue: duration,
                 decoration: const InputDecoration(
@@ -323,6 +447,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 },
               ),
               const SizedBox(height: 12),
+
               DropdownButtonFormField<String>(
                 initialValue: tieBreaker,
                 decoration: const InputDecoration(
@@ -338,7 +463,9 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                   });
                 },
               ),
+
               const SizedBox(height: 20),
+
               CheckboxListTile(
                 value: acceptedTerms,
                 onChanged: (value) {
@@ -349,12 +476,16 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 title: const Text('Acepto los términos y condiciones'),
                 controlAffinity: ListTileControlAffinity.leading,
               ),
+
               const SizedBox(height: 20),
+
               ElevatedButton(
                 onPressed: isLoading ? null : _submitForm,
                 child: Text(isLoading ? 'Guardando...' : 'Crear torneo'),
               ),
+
               const SizedBox(height: 16),
+
               if (tournamentType == 'Por invitación' && generatedCode != null)
                 Card(
                   child: Padding(
