@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+
 import '../../../home/presentation/pages/home_page.dart';
-import '../../../tournaments/presentation/pages/tournaments_page.dart';
 import '../../../my_tournaments/presentation/pages/my_tournaments_page.dart';
 import '../../../profile/presentation/pages/profile_page.dart';
+import '../../../tournaments/presentation/pages/tournaments_page.dart';
 
 class MainNavigationPage extends StatefulWidget {
   final bool isDarkMode;
@@ -25,9 +26,8 @@ class MainNavigationPage extends StatefulWidget {
 class _MainNavigationPageState extends State<MainNavigationPage> {
   int _currentIndex = 0;
 
-  @override
-  Widget build(BuildContext context) {
-    final pages = [
+  List<Widget> _buildPages() {
+    return [
       HomePage(
         selectedCity: widget.selectedCity,
         onCityChanged: widget.onCityChanged,
@@ -41,9 +41,17 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
         onThemeChanged: widget.onThemeChanged,
       ),
     ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pages = _buildPages();
 
     return Scaffold(
-      body: pages[_currentIndex],
+      body: IndexedStack(
+        index: _currentIndex,
+        children: pages,
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) {

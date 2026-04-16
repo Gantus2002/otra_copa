@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
-import '../../../my_tournaments/presentation/pages/my_tournaments_page.dart';
-import '../../../tournaments/presentation/pages/tournaments_page.dart';
+import 'package:url_launcher/url_launcher.dart';
+
 import '../../../admin/presentation/pages/create_tournament_page.dart';
 import '../../../admin/presentation/pages/select_tournament_page.dart';
-import '../../../location/presentation/pages/location_page.dart';
 import '../../../invite/presentation/pages/join_by_code_page.dart';
+import '../../../location/presentation/pages/location_page.dart';
+import '../../../my_tournaments/presentation/pages/my_tournaments_page.dart';
+import '../../../tournaments/presentation/pages/tournaments_page.dart';
 import '../../data/home_content_service.dart';
 
 class HomePage extends StatefulWidget {
@@ -22,32 +24,121 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final HomeContentService _homeContentService = HomeContentService();
+  final HomeContentService _service = HomeContentService();
 
   List<Map<String, dynamic>> banners = [];
   Map<String, dynamic>? ad;
-  bool loadingContent = true;
+
+  bool loading = true;
+  int currentBanner = 0;
 
   @override
   void initState() {
     super.initState();
-    _loadHomeContent();
+    _load();
   }
 
-  Future<void> _loadHomeContent() async {
-    try {
-      final bannersData = await _homeContentService.getActiveBanners();
-      final adData = await _homeContentService.getActiveAd();
+  void _safeSetState(VoidCallback fn) {
+    if (!mounted) return;
+    setState(fn);
+  }
 
-      setState(() {
-        banners = bannersData;
-        ad = adData;
+  void _showSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  Future<void> _load() async {
+    try {
+      final b = await _service.getActiveBanners();
+      final a = await _service.getActiveAd();
+
+      _safeSetState(() {
+        banners = b;
+        ad = a;
+        loading = false;
+        if (currentBanner >= banners.length) {
+          currentBanner = 0;
+        }
       });
-    } finally {
-      setState(() {
-        loadingContent = false;
+    } catch (e) {
+      _safeSetState(() {
+        loading = false;
       });
+      _showSnackBar('Error cargando contenido del inicio');
     }
+  }
+
+  Future<void> _openExternalUrl(String rawUrl) async {
+    final url = rawUrl.trim();
+
+    if (url.isEmpty) {
+      _showSnackBar('La URL está vacía');
+      return;
+    }
+
+    Uri? uri = Uri.tryParse(url);
+
+    if (uri == null) {
+      _showSnackBar('La URL no es válida');
+      return;
+    }
+
+    if (!uri.hasScheme) {
+      uri = Uri.tryParse('https://$url');
+    }
+
+    if (uri == null) {
+      _showSnackBar('La URL no es válida');
+      return;
+    }
+
+    final opened = await launchUrl(
+      uri,
+      mode: LaunchMode.externalApplication,
+    );
+
+    if (!opened) {
+      _showSnackBar('No se pudo abrir el link');
+    }
+  }
+
+  Future<void> _handleBannerTap(Map<String, dynamic> banner) async {
+    final type = banner['target_type']?.toString();
+    final value = banner['target_value']?.toString();
+
+    if (type == null || type.isEmpty || value == null || value.isEmpty) {
+      _showSnackBar('Este banner no tiene destino configurado');
+      return;
+    }
+
+    if (type == 'tournament') {
+      final tournamentId = int.tryParse(value);
+
+      if (tournamentId == null) {
+        _showSnackBar('ID de torneo inválido');
+        return;
+      }
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => TournamentsPage(
+            selectedCity: widget.selectedCity,
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (type == 'external') {
+      await _openExternalUrl(value);
+      return;
+    }
+
+    _showSnackBar('Tipo de destino no soportado');
   }
 
   @override
@@ -58,331 +149,271 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         title: const Text('Otra Copa'),
         actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: IconButton(
-              icon: const Icon(Icons.location_on_outlined),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => LocationPage(
-                      selectedCity: widget.selectedCity,
-                      onCitySelected: widget.onCityChanged,
-                    ),
+          IconButton(
+            icon: const Icon(Icons.location_on_outlined),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => LocationPage(
+                    selectedCity: widget.selectedCity,
+                    onCitySelected: widget.onCityChanged,
                   ),
-                );
-              },
-            ),
+                ),
+              );
+            },
           ),
         ],
       ),
-      body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: _loadHomeContent,
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              Text(
-                'Hola',
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '${widget.selectedCity}, Paraguay',
-                style: theme.textTheme.bodyMedium,
-              ),
+      body: loading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  Text(
+                    'Bienvenido',
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    '${widget.selectedCity}, Paraguay',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 20),
+                  if (banners.isNotEmpty) ...[
+                    SizedBox(
+                      height: 160,
+                      child: PageView.builder(
+                        itemCount: banners.length,
+                        onPageChanged: (i) {
+                          _safeSetState(() {
+                            currentBanner = i;
+                          });
+                        },
+                        itemBuilder: (_, i) {
+                          final banner = banners[i];
 
-              const SizedBox(height: 20),
-
-              if (loadingContent)
-                const Center(child: CircularProgressIndicator())
-              else if (banners.isNotEmpty) ...[
-                SizedBox(
-                  height: 155,
-                  child: PageView.builder(
-                    itemCount: banners.length,
-                    controller: PageController(viewportFraction: 0.94),
-                    itemBuilder: (context, index) {
-                      final banner = banners[index];
-
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(18),
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              Image.network(
-                                banner['image_url']?.toString() ?? '',
-                                fit: BoxFit.cover,
-                              ),
-                              Container(
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.bottomCenter,
-                                    end: Alignment.topCenter,
-                                    colors: [
-                                      Colors.black.withValues(alpha: 0.65),
-                                      Colors.transparent,
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              Positioned(
-                                left: 14,
-                                right: 14,
-                                bottom: 14,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: GestureDetector(
+                              onTap: () => _handleBannerTap(banner),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(18),
+                                child: Stack(
+                                  fit: StackFit.expand,
                                   children: [
-                                    Text(
-                                      banner['title']?.toString() ?? '',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    if ((banner['subtitle'] ?? '')
-                                        .toString()
-                                        .trim()
-                                        .isNotEmpty)
-                                      Text(
-                                        banner['subtitle'].toString(),
-                                        style: const TextStyle(
-                                          color: Colors.white,
+                                    Image.network(
+                                      banner['image_url']?.toString() ?? '',
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => Container(
+                                        color: Colors.black12,
+                                        alignment: Alignment.center,
+                                        child: const Text(
+                                          'No se pudo cargar la imagen',
                                         ),
                                       ),
+                                    ),
+                                    Container(
+                                      decoration: const BoxDecoration(
+                                        gradient: LinearGradient(
+                                          begin: Alignment.bottomCenter,
+                                          end: Alignment.topCenter,
+                                          colors: [
+                                            Colors.black54,
+                                            Colors.transparent,
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    Positioned(
+                                      left: 12,
+                                      right: 12,
+                                      bottom: 12,
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            banner['title']?.toString() ?? '',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            banner['subtitle']?.toString() ?? '',
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              color: Colors.white70,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
-                            ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(
+                        banners.length,
+                        (i) => Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 3),
+                          width: currentBanner == i ? 10 : 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: currentBanner == i
+                                ? theme.colorScheme.primary
+                                : Colors.grey,
+                            borderRadius: BorderRadius.circular(10),
                           ),
                         ),
-                      );
-                    },
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+                  Text(
+                    'Accesos rápidos',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 24),
-              ],
-
-              Text(
-                'Accesos rápidos',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              GridView.count(
-                crossAxisCount: 2,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                childAspectRatio: 1.35,
-                children: [
-                  _QuickAccessCard(
-                    icon: Icons.add_circle_outline,
-                    title: 'Crear torneo',
-                    subtitle: 'Armá un torneo nuevo',
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const CreateTournamentPage(),
-                        ),
-                      );
-                    },
-                  ),
-                  _QuickAccessCard(
-                    icon: Icons.search,
-                    title: 'Buscar torneo',
-                    subtitle: 'Explorá torneos',
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => TournamentsPage(
-                            selectedCity: widget.selectedCity,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  _QuickAccessCard(
-                    icon: Icons.vpn_key_outlined,
-                    title: 'Ingresar código',
-                    subtitle: 'Unite a un torneo',
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const JoinByCodePage(),
-                        ),
-                      );
-                    },
-                  ),
-                  _QuickAccessCard(
-                    icon: Icons.admin_panel_settings_outlined,
-                    title: 'Solicitudes',
-                    subtitle: 'Gestioná tus torneos',
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const SelectTournamentPage(),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 24),
-
-              Text(
-                'Tu actividad',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
+                  const SizedBox(height: 12),
+                  GridView.count(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
                     children: [
-                      const Icon(
-                        Icons.sports_soccer,
-                        size: 42,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Todavía no mostramos resumen automático en Inicio.',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Por ahora usá Mis torneos, Solicitudes y tu Perfil para ver tu información real.',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 24),
-
-              if (!loadingContent && ad != null) ...[
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(18),
-                  child: Image.network(
-                    ad!['image_url']?.toString() ?? '',
-                    height: 100,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-                const SizedBox(height: 24),
-              ],
-
-              Text(
-                'Más opciones',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              Card(
-                child: Column(
-                  children: [
-                    ListTile(
-                      leading: const Icon(Icons.list_alt_outlined),
-                      title: const Text('Mis torneos'),
-                      subtitle: const Text('Ver torneos en los que participás'),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () {
+                      _card(Icons.add, 'Crear torneo', () {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => const MyTournamentsPage(),
+                            builder: (_) => const CreateTournamentPage(),
                           ),
                         );
-                      },
-                    ),
-                    const Divider(height: 1),
-                    ListTile(
-                      leading: const Icon(Icons.location_city_outlined),
-                      title: const Text('Cambiar ciudad'),
-                      subtitle: Text(widget.selectedCity),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () {
+                      }),
+                      _card(Icons.search, 'Buscar torneo', () {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => LocationPage(
+                            builder: (_) => TournamentsPage(
                               selectedCity: widget.selectedCity,
-                              onCitySelected: widget.onCityChanged,
                             ),
                           ),
                         );
-                      },
+                      }),
+                      _card(Icons.vpn_key, 'Ingresar código', () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const JoinByCodePage(),
+                          ),
+                        );
+                      }),
+                      _card(Icons.admin_panel_settings, 'Solicitudes', () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const SelectTournamentPage(),
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  if (ad != null) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: Image.network(
+                        ad!['image_url']?.toString() ?? '',
+                        height: 100,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          height: 100,
+                          alignment: Alignment.center,
+                          color: Colors.black12,
+                          child: const Text('No se pudo cargar el anuncio'),
+                        ),
+                      ),
                     ),
+                    const SizedBox(height: 24),
                   ],
-                ),
+                  Text(
+                    'Más opciones',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Card(
+                    child: Column(
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.list),
+                          title: const Text('Mis torneos'),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const MyTournamentsPage(),
+                              ),
+                            );
+                          },
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          leading: const Icon(Icons.location_city),
+                          title: const Text('Cambiar ciudad'),
+                          subtitle: Text(widget.selectedCity),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => LocationPage(
+                                  selectedCity: widget.selectedCity,
+                                  onCitySelected: widget.onCityChanged,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
-      ),
+            ),
     );
   }
-}
 
-class _QuickAccessCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  const _QuickAccessCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _card(IconData icon, String title, VoidCallback onTap) {
     return InkWell(
       borderRadius: BorderRadius.circular(18),
       onTap: onTap,
       child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(14),
+        child: Center(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(icon, size: 28),
-              const Spacer(),
-              Text(
-                title,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+              const SizedBox(height: 8),
+              Text(title),
             ],
           ),
         ),

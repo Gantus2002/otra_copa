@@ -21,4 +21,14 @@ class HomeContentService {
 
     return response;
   }
+
+  Future<Map<String, dynamic>?> getTournamentById(String id) async {
+    final response = await SupabaseService.client
+        .from('tournaments')
+        .select()
+        .eq('id', int.parse(id))
+        .maybeSingle();
+
+    return response;
+  }
 }

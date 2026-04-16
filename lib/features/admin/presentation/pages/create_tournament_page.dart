@@ -1,6 +1,8 @@
 import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../../tournaments/data/tournament_remote_service.dart';
 
 class CreateTournamentPage extends StatefulWidget {
@@ -19,6 +21,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
   final TextEditingController teamsController = TextEditingController();
   final TextEditingController costController = TextEditingController();
   final TextEditingController prizesController = TextEditingController();
+  final TextEditingController startDateController = TextEditingController();
 
   String tournamentType = 'Liga';
   String gameMode = '5 vs 5';
@@ -46,11 +49,23 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
     _loadPermissions();
   }
 
+  void _safeSetState(VoidCallback fn) {
+    if (!mounted) return;
+    setState(fn);
+  }
+
+  void _showSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
   Future<void> _loadPermissions() async {
     final user = Supabase.instance.client.auth.currentUser;
 
     if (user == null) {
-      setState(() {
+      _safeSetState(() {
         loadingPermissions = false;
       });
       return;
@@ -63,22 +78,26 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
           .eq('id', user.id)
           .maybeSingle();
 
-      final role = (profile?['role'] ?? 'player').toString();
+      final role = (profile?['role'] ?? 'player').toString().trim();
       final verified = profile?['verified'] == true;
 
-      final allowed =
-          verified && (role == 'organizer' || role == 'venue');
+      final allowed = verified &&
+          (role == 'organizer' ||
+              role == 'venue' ||
+              role == 'admin' ||
+              role == 'super_admin');
 
-      setState(() {
+      _safeSetState(() {
         currentRole = role;
         currentVerified = verified;
         canCreateOfficial = allowed;
         loadingPermissions = false;
       });
-    } catch (_) {
-      setState(() {
+    } catch (e) {
+      _safeSetState(() {
         loadingPermissions = false;
       });
+      _showSnackBar('No se pudieron cargar los permisos');
     }
   }
 
@@ -89,6 +108,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
     teamsController.dispose();
     costController.dispose();
     prizesController.dispose();
+    startDateController.dispose();
     super.dispose();
   }
 
@@ -104,26 +124,18 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
     }
 
     if (!acceptedTerms) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Tenés que aceptar los términos y condiciones.'),
-        ),
-      );
+      _showSnackBar('Tenés que aceptar los términos y condiciones.');
       return;
     }
 
     if (isOfficial && !canCreateOfficial) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Solo perfiles verificados como cancha u organización pueden crear torneos oficiales.',
-          ),
-        ),
+      _showSnackBar(
+        'Solo perfiles verificados como organizador, cancha o administradores pueden crear torneos oficiales.',
       );
       return;
     }
 
-    setState(() {
+    _safeSetState(() {
       isLoading = true;
     });
 
@@ -144,29 +156,37 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
         inviteCode: code,
       );
 
-      setState(() {
+      _safeSetState(() {
         generatedCode = code;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            tournamentType == 'Por invitación'
-                ? 'Torneo guardado. Código: $code'
-                : 'Torneo guardado correctamente.',
-          ),
-        ),
+      _showSnackBar(
+        tournamentType == 'Por invitación'
+            ? 'Torneo guardado. Código: $code'
+            : 'Torneo guardado correctamente.',
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error al guardar torneo: $e'),
-        ),
-      );
+      _showSnackBar('Error al guardar torneo: $e');
     } finally {
-      setState(() {
+      _safeSetState(() {
         isLoading = false;
       });
+    }
+  }
+
+  String _roleLabel(String role) {
+    switch (role) {
+      case 'organizer':
+        return 'Organizador';
+      case 'venue':
+        return 'Cancha';
+      case 'admin':
+        return 'Administrador';
+      case 'super_admin':
+        return 'Super administrador';
+      case 'player':
+      default:
+        return 'Jugador';
     }
   }
 
@@ -179,7 +199,11 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
       return 'Tu perfil está habilitado para crear torneos oficiales.';
     }
 
-    return 'Solo perfiles verificados como cancha u organización pueden activar esta opción.';
+    if (!currentVerified) {
+      return 'Necesitás tener el perfil verificado para activar esta opción.';
+    }
+
+    return 'Solo perfiles verificados como organizador, cancha o administradores pueden activar esta opción.';
   }
 
   @override
@@ -208,14 +232,13 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 style: theme.textTheme.bodyMedium,
               ),
               const SizedBox(height: 12),
-
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Tu rol actual: $currentRole'),
+                      Text('Tu rol actual: ${_roleLabel(currentRole)}'),
                       const SizedBox(height: 4),
                       Text(
                         currentVerified
@@ -226,9 +249,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 20),
-
               TextFormField(
                 controller: nameController,
                 decoration: const InputDecoration(
@@ -242,7 +263,6 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 },
               ),
               const SizedBox(height: 12),
-
               TextFormField(
                 controller: locationController,
                 decoration: const InputDecoration(
@@ -256,28 +276,35 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 },
               ),
               const SizedBox(height: 12),
-
               DropdownButtonFormField<String>(
-                initialValue: tournamentType,
+                value: tournamentType,
                 decoration: const InputDecoration(
                   labelText: 'Tipo de torneo',
                 ),
                 items: const [
                   DropdownMenuItem(value: 'Liga', child: Text('Liga')),
-                  DropdownMenuItem(value: 'Eliminatoria', child: Text('Eliminatoria')),
-                  DropdownMenuItem(value: 'Relámpago', child: Text('Relámpago')),
-                  DropdownMenuItem(value: 'Por invitación', child: Text('Por invitación')),
+                  DropdownMenuItem(
+                    value: 'Eliminatoria',
+                    child: Text('Eliminatoria'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'Relámpago',
+                    child: Text('Relámpago'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'Por invitación',
+                    child: Text('Por invitación'),
+                  ),
                 ],
                 onChanged: (value) {
-                  setState(() {
-                    tournamentType = value!;
+                  _safeSetState(() {
+                    tournamentType = value ?? 'Liga';
                   });
                 },
               ),
               const SizedBox(height: 12),
-
               DropdownButtonFormField<String>(
-                initialValue: gameMode,
+                value: gameMode,
                 decoration: const InputDecoration(
                   labelText: 'Modalidad de juego',
                 ),
@@ -289,32 +316,37 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                   DropdownMenuItem(value: '11 vs 11', child: Text('11 vs 11')),
                 ],
                 onChanged: (value) {
-                  setState(() {
-                    gameMode = value!;
+                  _safeSetState(() {
+                    gameMode = value ?? '5 vs 5';
                   });
                 },
               ),
               const SizedBox(height: 12),
-
               DropdownButtonFormField<String>(
-                initialValue: category,
+                value: category,
                 decoration: const InputDecoration(
                   labelText: 'Categoría',
                 ),
                 items: const [
-                  DropdownMenuItem(value: 'Masculino', child: Text('Masculino')),
-                  DropdownMenuItem(value: 'Femenino', child: Text('Femenino')),
+                  DropdownMenuItem(
+                    value: 'Masculino',
+                    child: Text('Masculino'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'Femenino',
+                    child: Text('Femenino'),
+                  ),
                   DropdownMenuItem(value: 'Mixto', child: Text('Mixto')),
                 ],
                 onChanged: (value) {
-                  setState(() {
-                    category = value!;
+                  _safeSetState(() {
+                    category = value ?? 'Masculino';
                   });
                 },
               ),
               const SizedBox(height: 12),
-
               TextFormField(
+                controller: startDateController,
                 decoration: const InputDecoration(
                   labelText: 'Fecha de inicio',
                   hintText: 'Ej: 25/04/2026',
@@ -327,7 +359,6 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 },
               ),
               const SizedBox(height: 12),
-
               TextFormField(
                 controller: teamsController,
                 keyboardType: TextInputType.number,
@@ -342,7 +373,6 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 },
               ),
               const SizedBox(height: 12),
-
               TextFormField(
                 controller: costController,
                 keyboardType: TextInputType.number,
@@ -357,7 +387,6 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 },
               ),
               const SizedBox(height: 12),
-
               TextFormField(
                 controller: prizesController,
                 decoration: const InputDecoration(
@@ -371,13 +400,12 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 },
               ),
               const SizedBox(height: 20),
-
               Card(
                 child: SwitchListTile(
                   value: isOfficial,
                   onChanged: canCreateOfficial
                       ? (value) {
-                          setState(() {
+                          _safeSetState(() {
                             isOfficial = value;
                           });
                         }
@@ -386,9 +414,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                   subtitle: Text(_officialSubtitle()),
                 ),
               ),
-
               const SizedBox(height: 12),
-
               Text(
                 'Reglas del torneo',
                 style: theme.textTheme.titleLarge?.copyWith(
@@ -396,96 +422,102 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                 ),
               ),
               const SizedBox(height: 12),
-
               SwitchListTile(
                 value: hasReferees,
                 onChanged: (value) {
-                  setState(() {
+                  _safeSetState(() {
                     hasReferees = value;
                   });
                 },
                 title: const Text('¿Con árbitros?'),
               ),
-
               SwitchListTile(
                 value: hasOffside,
                 onChanged: (value) {
-                  setState(() {
+                  _safeSetState(() {
                     hasOffside = value;
                   });
                 },
                 title: const Text('¿Se aplica offside?'),
               ),
-
               SwitchListTile(
                 value: hasCardSanctions,
                 onChanged: (value) {
-                  setState(() {
+                  _safeSetState(() {
                     hasCardSanctions = value;
                   });
                 },
                 title: const Text('¿Sanciones por tarjetas?'),
               ),
-
               const SizedBox(height: 12),
-
               DropdownButtonFormField<String>(
-                initialValue: duration,
+                value: duration,
                 decoration: const InputDecoration(
                   labelText: 'Duración del partido',
                 ),
                 items: const [
-                  DropdownMenuItem(value: '20 minutos', child: Text('20 minutos')),
-                  DropdownMenuItem(value: '30 minutos', child: Text('30 minutos')),
-                  DropdownMenuItem(value: '40 minutos', child: Text('40 minutos')),
-                  DropdownMenuItem(value: '50 minutos', child: Text('50 minutos')),
+                  DropdownMenuItem(
+                    value: '20 minutos',
+                    child: Text('20 minutos'),
+                  ),
+                  DropdownMenuItem(
+                    value: '30 minutos',
+                    child: Text('30 minutos'),
+                  ),
+                  DropdownMenuItem(
+                    value: '40 minutos',
+                    child: Text('40 minutos'),
+                  ),
+                  DropdownMenuItem(
+                    value: '50 minutos',
+                    child: Text('50 minutos'),
+                  ),
                 ],
                 onChanged: (value) {
-                  setState(() {
-                    duration = value!;
+                  _safeSetState(() {
+                    duration = value ?? '40 minutos';
                   });
                 },
               ),
               const SizedBox(height: 12),
-
               DropdownButtonFormField<String>(
-                initialValue: tieBreaker,
+                value: tieBreaker,
                 decoration: const InputDecoration(
                   labelText: 'En caso de empate',
                 ),
                 items: const [
-                  DropdownMenuItem(value: 'Gol de oro', child: Text('Gol de oro')),
-                  DropdownMenuItem(value: 'Penales', child: Text('Penales')),
+                  DropdownMenuItem(
+                    value: 'Gol de oro',
+                    child: Text('Gol de oro'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'Penales',
+                    child: Text('Penales'),
+                  ),
                 ],
                 onChanged: (value) {
-                  setState(() {
-                    tieBreaker = value!;
+                  _safeSetState(() {
+                    tieBreaker = value ?? 'Penales';
                   });
                 },
               ),
-
               const SizedBox(height: 20),
-
               CheckboxListTile(
                 value: acceptedTerms,
                 onChanged: (value) {
-                  setState(() {
+                  _safeSetState(() {
                     acceptedTerms = value ?? false;
                   });
                 },
                 title: const Text('Acepto los términos y condiciones'),
                 controlAffinity: ListTileControlAffinity.leading,
               ),
-
               const SizedBox(height: 20),
-
               ElevatedButton(
-                onPressed: isLoading ? null : _submitForm,
+                onPressed: isLoading || loadingPermissions ? null : _submitForm,
                 child: Text(isLoading ? 'Guardando...' : 'Crear torneo'),
               ),
-
               const SizedBox(height: 16),
-
               if (tournamentType == 'Por invitación' && generatedCode != null)
                 Card(
                   child: Padding(

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../../core/services/supabase_service.dart';
+import '../../../../core/services/supabase_service.dart';
 
 class RequestVerificationPage extends StatefulWidget {
   const RequestVerificationPage({super.key});
@@ -36,44 +36,95 @@ class _RequestVerificationPageState extends State<RequestVerificationPage> {
         'notes': notesController.text.trim(),
       });
 
+      if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Solicitud enviada')),
       );
 
       Navigator.pop(context);
     } catch (e) {
+      if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e')),
       );
     } finally {
-      setState(() => loading = false);
+      if (mounted) {
+        setState(() => loading = false);
+      }
     }
+  }
+
+  @override
+  void dispose() {
+    orgController.dispose();
+    nameController.dispose();
+    phoneController.dispose();
+    notesController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Solicitar verificación')),
+      appBar: AppBar(
+        title: const Text('Solicitar verificación'),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          DropdownButtonFormField(
-            value: selectedRole,
+          DropdownButtonFormField<String>(
+            initialValue: selectedRole,
             items: const [
-              DropdownMenuItem(value: 'organizer', child: Text('Organización')),
-              DropdownMenuItem(value: 'venue', child: Text('Cancha')),
+              DropdownMenuItem(
+                value: 'organizer',
+                child: Text('Organización'),
+              ),
+              DropdownMenuItem(
+                value: 'venue',
+                child: Text('Cancha'),
+              ),
             ],
             onChanged: (v) => setState(() => selectedRole = v!),
+            decoration: const InputDecoration(
+              labelText: 'Tipo de perfil',
+            ),
           ),
-          TextField(controller: orgController, decoration: const InputDecoration(labelText: 'Nombre')),
-          TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Responsable')),
-          TextField(controller: phoneController, decoration: const InputDecoration(labelText: 'Teléfono')),
-          TextField(controller: notesController, decoration: const InputDecoration(labelText: 'Notas')),
+          const SizedBox(height: 12),
+          TextField(
+            controller: orgController,
+            decoration: const InputDecoration(
+              labelText: 'Nombre de la organización o cancha',
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: nameController,
+            decoration: const InputDecoration(
+              labelText: 'Responsable',
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: phoneController,
+            decoration: const InputDecoration(
+              labelText: 'Teléfono',
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: notesController,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              labelText: 'Notas',
+            ),
+          ),
           const SizedBox(height: 20),
           ElevatedButton(
             onPressed: loading ? null : submit,
-            child: const Text('Enviar solicitud'),
-          )
+            child: Text(loading ? 'Enviando...' : 'Enviar solicitud'),
+          ),
         ],
       ),
     );

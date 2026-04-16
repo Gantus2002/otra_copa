@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/services/supabase_service.dart';
+import 'admin_home_content_page.dart';
 
 class AdminVerificationPage extends StatefulWidget {
   const AdminVerificationPage({super.key});
@@ -60,21 +61,50 @@ class _AdminVerificationPageState extends State<AdminVerificationPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Panel Admin')),
+      appBar: AppBar(
+        title: const Text('Panel Admin'),
+      ),
       body: loading
           ? const Center(child: CircularProgressIndicator())
-          : requests.isEmpty
-              ? const Center(child: Text('No hay solicitudes'))
-              : ListView.builder(
-                  itemCount: requests.length,
-                  itemBuilder: (_, i) {
-                    final r = requests[i];
-
-                    return Card(
-                      margin: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.view_carousel_outlined),
+                    title: const Text('Contenido Home'),
+                    subtitle: const Text('Gestionar banners y anuncios'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const AdminHomeContentPage(),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'Solicitudes de verificación',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (requests.isEmpty)
+                  const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text('No hay solicitudes'),
+                    ),
+                  )
+                else
+                  ...requests.map(
+                    (r) => Card(
+                      margin: const EdgeInsets.only(bottom: 12),
                       child: ListTile(
                         title: Text(r['organization_name']?.toString() ?? ''),
                         subtitle: Text(
@@ -95,9 +125,10 @@ class _AdminVerificationPageState extends State<AdminVerificationPage> {
                           ],
                         ),
                       ),
-                    );
-                  },
-                ),
+                    ),
+                  ),
+              ],
+            ),
     );
   }
 }

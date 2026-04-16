@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../features/auth/presentation/pages/login_page.dart';
 import '../features/navigation/presentation/pages/main_navigation_page.dart';
 import 'theme/app_theme.dart';
 
 class OtraCopaApp extends StatelessWidget {
-  final ThemeMode? themeMode;
+  final ThemeMode themeMode;
   final ValueChanged<bool> onThemeChanged;
   final String selectedCity;
   final ValueChanged<String> onCityChanged;
@@ -21,22 +22,23 @@ class OtraCopaApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final session = Supabase.instance.client.auth.currentSession;
+    final isDarkMode = themeMode == ThemeMode.dark;
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Otra Copa',
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: themeMode ?? ThemeMode.light,
+      themeMode: themeMode,
       home: session == null
           ? LoginPage(
-              isDarkMode: (themeMode ?? ThemeMode.light) == ThemeMode.dark,
+              isDarkMode: isDarkMode,
               onThemeChanged: onThemeChanged,
               selectedCity: selectedCity,
               onCityChanged: onCityChanged,
             )
           : MainNavigationPage(
-              isDarkMode: (themeMode ?? ThemeMode.light) == ThemeMode.dark,
+              isDarkMode: isDarkMode,
               onThemeChanged: onThemeChanged,
               selectedCity: selectedCity,
               onCityChanged: onCityChanged,
