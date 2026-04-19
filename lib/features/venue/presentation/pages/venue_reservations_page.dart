@@ -17,6 +17,7 @@ class VenueReservationsPage extends StatefulWidget {
 class _VenueReservationsPageState extends State<VenueReservationsPage> {
   List<Map<String, dynamic>> reservations = [];
   bool isLoading = true;
+  String selectedFilter = 'today';
 
   @override
   void initState() {
@@ -270,10 +271,64 @@ class _VenueReservationsPageState extends State<VenueReservationsPage> {
     return diff >= 0 && diff <= 5;
   }
 
+  Widget _filterButton(String text, String value) {
+    final selected = selectedFilter == value;
+
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          _safeSetState(() {
+            selectedFilter = value;
+          });
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? Colors.teal : Colors.grey.shade200,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            text,
+            style: TextStyle(
+              color: selected ? Colors.white : Colors.black,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Map<String, dynamic>> _filteredReservations() {
+    return reservations.where((r) {
+      if (selectedFilter == 'all') return true;
+
+      final date = DateTime.tryParse((r['reservation_date'] ?? '').toString());
+      if (date == null) return false;
+
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final tomorrow = today.add(const Duration(days: 1));
+      final reservationDay = DateTime(date.year, date.month, date.day);
+
+      if (selectedFilter == 'today') {
+        return reservationDay == today;
+      }
+
+      if (selectedFilter == 'tomorrow') {
+        return reservationDay == tomorrow;
+      }
+
+      return true;
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final venueName = (widget.venue['name'] ?? 'Mi complejo').toString();
+    final filtered = _filteredReservations();
 
     return Scaffold(
       appBar: AppBar(
@@ -281,224 +336,272 @@ class _VenueReservationsPageState extends State<VenueReservationsPage> {
       ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
-          : reservations.isEmpty
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      'Todavía no hay reservas para este complejo.',
-                      style: theme.textTheme.bodyLarge,
-                      textAlign: TextAlign.center,
-                    ),
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                  child: Row(
+                    children: [
+                      _filterButton('Hoy', 'today'),
+                      const SizedBox(width: 8),
+                      _filterButton('Mañana', 'tomorrow'),
+                      const SizedBox(width: 8),
+                      _filterButton('Todas', 'all'),
+                    ],
                   ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _loadReservations,
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
-                    children: reservations.map((reservation) {
-                      final reservationId = reservation['id'] as int;
-                      final courtData =
-                          reservation['courts'] as Map<String, dynamic>?;
-                      final profileData =
-                          reservation['profiles'] as Map<String, dynamic>?;
-
-                      final courtName =
-                          (courtData?['name'] ?? 'Cancha').toString();
-                      final playerName =
-                          (profileData?['full_name'] ?? 'Jugador').toString();
-                      final playerPhone =
-                          (profileData?['phone'] ?? '').toString();
-
-                      final date = _formatDate(reservation['reservation_date']);
-                      final startTime = _shortTime(reservation['start_time']);
-                      final endTime = _shortTime(reservation['end_time']);
-                      final status =
-                          (reservation['status'] ?? 'pending_payment').toString();
-                      final paymentMethod =
-                          (reservation['payment_method'] ?? '').toString();
-                      final paymentStatus =
-                          (reservation['payment_status'] ?? 'pending').toString();
-                      final totalPrice = reservation['total_price'];
-                      final expiresAt = reservation['expires_at'];
-                      final nearExpiration =
-                          status == 'pending_payment' &&
-                              _isNearExpiration(expiresAt);
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(24),
-                          color: theme.colorScheme.surface,
-                          border: Border.all(
-                            color: nearExpiration
-                                ? Colors.orange.withOpacity(0.55)
-                                : theme.colorScheme.outlineVariant.withOpacity(0.22),
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.04),
-                              blurRadius: 14,
-                              offset: const Offset(0, 6),
+                ),
+                Expanded(
+                  child: filtered.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Text(
+                              'No hay reservas para este filtro.',
+                              style: theme.textTheme.bodyLarge,
+                              textAlign: TextAlign.center,
                             ),
-                          ],
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                courtName,
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  _buildAvatar(profileData),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          playerName,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w800,
-                                          ),
-                                        ),
-                                        if (playerPhone.isNotEmpty) ...[
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            playerPhone,
-                                            style: theme.textTheme.bodyMedium?.copyWith(
-                                              color: theme.colorScheme.onSurfaceVariant,
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  _ReservationChip(label: date),
-                                  _ReservationChip(label: '$startTime - $endTime'),
-                                  _ReservationChip(
-                                    label: _paymentMethodText(paymentMethod),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                'Estado: ${_statusText(status)}',
-                                style: TextStyle(
-                                  color: _statusColor(status),
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Pago: ${_paymentStatusText(paymentStatus)}',
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                              if (status == 'pending_payment' && expiresAt != null) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Vence en: ${_remainingTimeText(expiresAt)}',
-                                  style: TextStyle(
+                          ),
+                        )
+                      : RefreshIndicator(
+                          onRefresh: _loadReservations,
+                          child: ListView(
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+                            children: filtered.map((reservation) {
+                              final reservationId = reservation['id'] as int;
+                              final courtData =
+                                  reservation['courts'] as Map<String, dynamic>?;
+                              final profileData =
+                                  reservation['profiles'] as Map<String, dynamic>?;
+
+                              final courtName =
+                                  (courtData?['name'] ?? 'Cancha').toString();
+                              final playerName =
+                                  (profileData?['full_name'] ?? 'Jugador')
+                                      .toString();
+                              final playerPhone =
+                                  (profileData?['phone'] ?? '').toString();
+
+                              final date =
+                                  _formatDate(reservation['reservation_date']);
+                              final startTime =
+                                  _shortTime(reservation['start_time']);
+                              final endTime = _shortTime(reservation['end_time']);
+                              final status =
+                                  (reservation['status'] ?? 'pending_payment')
+                                      .toString();
+                              final paymentMethod =
+                                  (reservation['payment_method'] ?? '').toString();
+                              final paymentStatus =
+                                  (reservation['payment_status'] ?? 'pending')
+                                      .toString();
+                              final totalPrice = reservation['total_price'];
+                              final expiresAt = reservation['expires_at'];
+                              final nearExpiration = status == 'pending_payment' &&
+                                  _isNearExpiration(expiresAt);
+
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(24),
+                                  color: theme.colorScheme.surface,
+                                  border: Border.all(
                                     color: nearExpiration
-                                        ? Colors.orange
-                                        : theme.colorScheme.onSurfaceVariant,
-                                    fontWeight: nearExpiration
-                                        ? FontWeight.w700
-                                        : FontWeight.w500,
+                                        ? Colors.orange.withOpacity(0.55)
+                                        : theme.colorScheme.outlineVariant
+                                            .withOpacity(0.22),
                                   ),
-                                ),
-                              ],
-                              if (totalPrice != null) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Total: Gs. $totalPrice',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                              const SizedBox(height: 14),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: playerPhone.trim().isEmpty
-                                          ? null
-                                          : () {
-                                              _openWhatsApp(
-                                                playerPhone: playerPhone,
-                                                playerName: playerName,
-                                                courtName: courtName,
-                                                date: date,
-                                                startTime: startTime,
-                                                endTime: endTime,
-                                                status: status,
-                                              );
-                                            },
-                                      icon: const Icon(Icons.chat_bubble_outline),
-                                      label: const Text('WhatsApp'),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              if (status == 'pending_payment') ...[
-                                const SizedBox(height: 10),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: ElevatedButton.icon(
-                                        onPressed: () {
-                                          _updateReservation(
-                                            reservationId: reservationId,
-                                            status: 'confirmed',
-                                            paymentStatus: 'verified',
-                                          );
-                                        },
-                                        icon: const Icon(Icons.check_circle_outline),
-                                        label: const Text('Confirmar'),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: OutlinedButton.icon(
-                                        onPressed: () {
-                                          _updateReservation(
-                                            reservationId: reservationId,
-                                            status: 'cancelled',
-                                            paymentStatus: 'rejected',
-                                          );
-                                        },
-                                        icon: const Icon(Icons.cancel_outlined),
-                                        label: const Text('Cancelar'),
-                                      ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.04),
+                                      blurRadius: 14,
+                                      offset: const Offset(0, 6),
                                     ),
                                   ],
                                 ),
-                              ],
-                            ],
+                                child: Padding(
+                                  padding:
+                                      const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        courtName,
+                                        style: theme.textTheme.titleMedium
+                                            ?.copyWith(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          _buildAvatar(profileData),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  playerName,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                                ),
+                                                if (playerPhone.isNotEmpty) ...[
+                                                  const SizedBox(height: 2),
+                                                  Text(
+                                                    playerPhone,
+                                                    style: theme
+                                                        .textTheme.bodyMedium
+                                                        ?.copyWith(
+                                                      color: theme.colorScheme
+                                                          .onSurfaceVariant,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        children: [
+                                          _ReservationChip(label: date),
+                                          _ReservationChip(
+                                            label: '$startTime - $endTime',
+                                          ),
+                                          _ReservationChip(
+                                            label: _paymentMethodText(
+                                              paymentMethod,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Text(
+                                        'Estado: ${_statusText(status)}',
+                                        style: TextStyle(
+                                          color: _statusColor(status),
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Pago: ${_paymentStatusText(paymentStatus)}',
+                                        style: theme.textTheme.bodyMedium
+                                            ?.copyWith(
+                                          color: theme
+                                              .colorScheme.onSurfaceVariant,
+                                        ),
+                                      ),
+                                      if (status == 'pending_payment' &&
+                                          expiresAt != null) ...[
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Vence en: ${_remainingTimeText(expiresAt)}',
+                                          style: TextStyle(
+                                            color: nearExpiration
+                                                ? Colors.orange
+                                                : theme.colorScheme
+                                                    .onSurfaceVariant,
+                                            fontWeight: nearExpiration
+                                                ? FontWeight.w700
+                                                : FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                      if (totalPrice != null) ...[
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Total: Gs. $totalPrice',
+                                          style: theme.textTheme.bodyMedium
+                                              ?.copyWith(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
+                                      const SizedBox(height: 14),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: OutlinedButton.icon(
+                                              onPressed: playerPhone
+                                                      .trim()
+                                                      .isEmpty
+                                                  ? null
+                                                  : () {
+                                                      _openWhatsApp(
+                                                        playerPhone: playerPhone,
+                                                        playerName: playerName,
+                                                        courtName: courtName,
+                                                        date: date,
+                                                        startTime: startTime,
+                                                        endTime: endTime,
+                                                        status: status,
+                                                      );
+                                                    },
+                                              icon: const Icon(
+                                                Icons.chat_bubble_outline,
+                                              ),
+                                              label: const Text('WhatsApp'),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      if (status == 'pending_payment') ...[
+                                        const SizedBox(height: 10),
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: ElevatedButton.icon(
+                                                onPressed: () {
+                                                  _updateReservation(
+                                                    reservationId: reservationId,
+                                                    status: 'confirmed',
+                                                    paymentStatus: 'verified',
+                                                  );
+                                                },
+                                                icon: const Icon(
+                                                  Icons.check_circle_outline,
+                                                ),
+                                                label: const Text('Confirmar'),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: OutlinedButton.icon(
+                                                onPressed: () {
+                                                  _updateReservation(
+                                                    reservationId: reservationId,
+                                                    status: 'cancelled',
+                                                    paymentStatus: 'rejected',
+                                                  );
+                                                },
+                                                icon: const Icon(
+                                                  Icons.cancel_outlined,
+                                                ),
+                                                label: const Text('Cancelar'),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }).toList(),
                           ),
                         ),
-                      );
-                    }).toList(),
-                  ),
                 ),
+              ],
+            ),
     );
   }
 }

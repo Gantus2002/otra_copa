@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../admin/presentation/pages/admin_courts_page.dart';
 import '../../../admin/presentation/pages/admin_venue_form_page.dart';
+import 'venue_calendar_page.dart';
 import 'venue_reservations_page.dart';
 import 'venue_schedules_selector_page.dart';
 
@@ -17,10 +18,15 @@ class _VenueDashboardPageState extends State<VenueDashboardPage> {
   bool isLoading = true;
   Map<String, dynamic>? myVenue;
 
+  double todayRevenue = 0;
+  double monthRevenue = 0;
+  int todayConfirmedCount = 0;
+  int pendingCount = 0;
+
   @override
   void initState() {
     super.initState();
-    _loadMyVenue();
+    _loadMyVenueAndStats();
   }
 
   void _safeSetState(VoidCallback fn) {
@@ -35,7 +41,7 @@ class _VenueDashboardPageState extends State<VenueDashboardPage> {
     );
   }
 
-  Future<void> _loadMyVenue() async {
+  Future<void> _loadMyVenueAndStats() async {
     final user = Supabase.instance.client.auth.currentUser;
 
     if (user == null) {
@@ -45,22 +51,90 @@ class _VenueDashboardPageState extends State<VenueDashboardPage> {
       return;
     }
 
+    _safeSetState(() {
+      isLoading = true;
+    });
+
     try {
-      final response = await Supabase.instance.client
+      final venueResponse = await Supabase.instance.client
           .from('venues')
           .select()
           .eq('owner_user_id', user.id)
           .maybeSingle();
 
+      if (venueResponse == null) {
+        _safeSetState(() {
+          myVenue = null;
+          todayRevenue = 0;
+          monthRevenue = 0;
+          todayConfirmedCount = 0;
+          pendingCount = 0;
+          isLoading = false;
+        });
+        return;
+      }
+
+      final venue = Map<String, dynamic>.from(venueResponse);
+      final venueId = venue['id'];
+
+      final reservationsResponse = await Supabase.instance.client
+          .from('court_reservations')
+          .select()
+          .eq('venue_id', venueId);
+
+      final reservations = List<Map<String, dynamic>>.from(reservationsResponse);
+
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final monthStart = DateTime(now.year, now.month, 1);
+
+      double tempTodayRevenue = 0;
+      double tempMonthRevenue = 0;
+      int tempTodayConfirmedCount = 0;
+      int tempPendingCount = 0;
+
+      for (final reservation in reservations) {
+        final status = (reservation['status'] ?? '').toString();
+        final rawDate = (reservation['reservation_date'] ?? '').toString();
+        final parsedDate = DateTime.tryParse(rawDate);
+        final total = reservation['total_price'];
+
+        final price = total is num ? total.toDouble() : 0.0;
+
+        if (status == 'pending_payment') {
+          tempPendingCount++;
+        }
+
+        if (parsedDate == null) continue;
+
+        final reservationDay =
+            DateTime(parsedDate.year, parsedDate.month, parsedDate.day);
+
+        if (status == 'confirmed') {
+          if (reservationDay == today) {
+            tempTodayRevenue += price;
+            tempTodayConfirmedCount++;
+          }
+
+          if (!reservationDay.isBefore(monthStart)) {
+            tempMonthRevenue += price;
+          }
+        }
+      }
+
       _safeSetState(() {
-        myVenue = response == null ? null : Map<String, dynamic>.from(response);
+        myVenue = venue;
+        todayRevenue = tempTodayRevenue;
+        monthRevenue = tempMonthRevenue;
+        todayConfirmedCount = tempTodayConfirmedCount;
+        pendingCount = tempPendingCount;
         isLoading = false;
       });
     } catch (e) {
       _safeSetState(() {
         isLoading = false;
       });
-      _showSnackBar('Error cargando tu complejo');
+      _showSnackBar('Error cargando panel: $e');
     }
   }
 
@@ -79,7 +153,7 @@ class _VenueDashboardPageState extends State<VenueDashboardPage> {
       ),
     );
 
-    await _loadMyVenue();
+    await _loadMyVenueAndStats();
   }
 
   Future<void> _openMyCourts() async {
@@ -98,7 +172,7 @@ class _VenueDashboardPageState extends State<VenueDashboardPage> {
       ),
     );
 
-    await _loadMyVenue();
+    await _loadMyVenueAndStats();
   }
 
   Future<void> _openSchedules() async {
@@ -117,13 +191,13 @@ class _VenueDashboardPageState extends State<VenueDashboardPage> {
     );
   }
 
-  void _openReservations() {
+  Future<void> _openReservations() async {
     if (myVenue == null) {
       _showSnackBar('Primero creá tu complejo');
       return;
     }
 
-    Navigator.push(
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => VenueReservationsPage(
@@ -131,11 +205,39 @@ class _VenueDashboardPageState extends State<VenueDashboardPage> {
         ),
       ),
     );
+
+    await _loadMyVenueAndStats();
+  }
+
+  Future<void> _openCalendar() async {
+    if (myVenue == null) {
+      _showSnackBar('Primero creá tu complejo');
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VenueCalendarPage(
+          venue: myVenue!,
+        ),
+      ),
+    );
+
+    await _loadMyVenueAndStats();
+  }
+
+  String _money(double value) {
+    return 'Gs. ${value.toStringAsFixed(0)}';
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
+    final venueName = (myVenue?['name'] ?? 'Administrá tu cancha').toString();
+    final venueCity = (myVenue?['city'] ?? '').toString();
+    final venueAddress = (myVenue?['address'] ?? '').toString();
 
     return Scaffold(
       appBar: AppBar(
@@ -144,7 +246,7 @@ class _VenueDashboardPageState extends State<VenueDashboardPage> {
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: _loadMyVenue,
+              onRefresh: _loadMyVenueAndStats,
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
                 children: [
@@ -172,9 +274,7 @@ class _VenueDashboardPageState extends State<VenueDashboardPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          myVenue == null
-                              ? 'Administrá tu cancha'
-                              : (myVenue!['name'] ?? 'Mi complejo').toString(),
+                          venueName,
                           style: theme.textTheme.headlineSmall?.copyWith(
                             color: Colors.white,
                             fontWeight: FontWeight.w800,
@@ -185,9 +285,9 @@ class _VenueDashboardPageState extends State<VenueDashboardPage> {
                         Text(
                           myVenue == null
                               ? 'Creá tu complejo y después cargá canchas, horarios y reservas.'
-                              : ((myVenue!['city'] ?? '').toString().isNotEmpty
-                                  ? '${(myVenue!['city'] ?? '').toString()} • ${(myVenue!['address'] ?? '').toString()}'
-                                  : 'Gestioná tu complejo, canchas y horarios'),
+                              : (venueCity.isNotEmpty || venueAddress.isNotEmpty)
+                                  ? '$venueCity${venueCity.isNotEmpty && venueAddress.isNotEmpty ? ' • ' : ''}$venueAddress'
+                                  : 'Gestioná tu complejo, canchas, horarios y reservas.',
                           style: theme.textTheme.bodyLarge?.copyWith(
                             color: Colors.white.withOpacity(0.90),
                             height: 1.35,
@@ -196,9 +296,56 @@ class _VenueDashboardPageState extends State<VenueDashboardPage> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
+                  if (myVenue != null) ...[
+                    _SectionTitle(
+                      title: 'Resumen rápido',
+                      subtitle: 'Lo más importante de tu complejo hoy',
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _StatCard(
+                            title: 'Hoy',
+                            value: _money(todayRevenue),
+                            icon: Icons.payments_outlined,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _StatCard(
+                            title: 'Mes',
+                            value: _money(monthRevenue),
+                            icon: Icons.calendar_month_outlined,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _StatCard(
+                            title: 'Confirmadas hoy',
+                            value: '$todayConfirmedCount',
+                            icon: Icons.check_circle_outline,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _StatCard(
+                            title: 'Pendientes',
+                            value: '$pendingCount',
+                            icon: Icons.schedule_outlined,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                  ],
                   if (myVenue == null) ...[
-                    _VenueSectionTitle(
+                    _SectionTitle(
                       title: 'Primer paso',
                       subtitle: 'Creá tu complejo para empezar a administrar',
                     ),
@@ -211,7 +358,7 @@ class _VenueDashboardPageState extends State<VenueDashboardPage> {
                       onTap: _openCreateOrEditVenue,
                     ),
                   ] else ...[
-                    _VenueSectionTitle(
+                    _SectionTitle(
                       title: 'Gestión',
                       subtitle: 'Administrá todo lo relacionado a tu cancha',
                     ),
@@ -243,6 +390,13 @@ class _VenueDashboardPageState extends State<VenueDashboardPage> {
                       subtitle: 'Ver reservas, pagos y confirmaciones',
                       onTap: _openReservations,
                     ),
+                    const SizedBox(height: 12),
+                    _VenueActionTile(
+                      icon: Icons.calendar_month_outlined,
+                      title: 'Calendario',
+                      subtitle: 'Ver ocupación de canchas por día',
+                      onTap: _openCalendar,
+                    ),
                   ],
                 ],
               ),
@@ -251,11 +405,11 @@ class _VenueDashboardPageState extends State<VenueDashboardPage> {
   }
 }
 
-class _VenueSectionTitle extends StatelessWidget {
+class _SectionTitle extends StatelessWidget {
   final String title;
   final String subtitle;
 
-  const _VenueSectionTitle({
+  const _SectionTitle({
     required this.title,
     required this.subtitle,
   });
@@ -282,6 +436,72 @@ class _VenueSectionTitle extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+
+  const _StatCard({
+    required this.title,
+    required this.value,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        color: theme.colorScheme.surface,
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withOpacity(0.22),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primaryContainer,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(
+              icon,
+              color: theme.colorScheme.onPrimaryContainer,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            value,
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            title,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

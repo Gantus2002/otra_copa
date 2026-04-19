@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'court_reservation_page.dart';
 
@@ -18,7 +20,6 @@ class VenueDetailPage extends StatefulWidget {
 class _VenueDetailPageState extends State<VenueDetailPage> {
   Map<String, dynamic>? venue;
   List<Map<String, dynamic>> courts = [];
-
   bool isLoading = true;
 
   @override
@@ -79,6 +80,68 @@ class _VenueDetailPageState extends State<VenueDetailPage> {
         ),
       ),
     );
+  }
+
+  void _shareVenue({
+    required String venueName,
+    required String venueCity,
+    required String venueAddress,
+  }) {
+    Share.share(
+      '⚽ Mirá este complejo en la app:\n\n'
+      '$venueName\n'
+      '${venueCity.isNotEmpty ? '$venueCity\n' : ''}'
+      '${venueAddress.isNotEmpty ? '$venueAddress\n' : ''}',
+    );
+  }
+
+  String _normalizePhone(String raw) {
+    return raw.replaceAll(RegExp(r'[^0-9+]'), '');
+  }
+
+  Future<void> _openWhatsApp(String phone) async {
+    final normalized = _normalizePhone(phone);
+    if (normalized.isEmpty) {
+      _showSnackBar('Número de WhatsApp inválido');
+      return;
+    }
+
+    final uri = Uri.parse('https://wa.me/$normalized');
+
+    try {
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+
+      if (!launched) {
+        _showSnackBar('No se pudo abrir WhatsApp');
+      }
+    } catch (_) {
+      _showSnackBar('No se pudo abrir WhatsApp');
+    }
+  }
+
+  Future<void> _callPhone(String phone) async {
+    final normalized = _normalizePhone(phone);
+    if (normalized.isEmpty) {
+      _showSnackBar('Número de teléfono inválido');
+      return;
+    }
+
+    final uri = Uri(
+      scheme: 'tel',
+      path: normalized,
+    );
+
+    try {
+      final launched = await launchUrl(uri);
+      if (!launched) {
+        _showSnackBar('No se pudo abrir el teléfono');
+      }
+    } catch (_) {
+      _showSnackBar('No se pudo abrir el teléfono');
+    }
   }
 
   @override
@@ -155,7 +218,11 @@ class _VenueDetailPageState extends State<VenueDetailPage> {
                         _TopIconButton(
                           icon: Icons.share_outlined,
                           onTap: () {
-                            _showSnackBar('La opción compartir la conectamos después');
+                            _shareVenue(
+                              venueName: venueName,
+                              venueCity: venueCity,
+                              venueAddress: venueAddress,
+                            );
                           },
                         ),
                       ],
@@ -285,6 +352,7 @@ class _VenueDetailPageState extends State<VenueDetailPage> {
                       icon: Icons.chat_bubble_outline,
                       title: 'WhatsApp',
                       subtitle: whatsapp,
+                      onTap: () => _openWhatsApp(whatsapp),
                     ),
                   if (phone.isNotEmpty) ...[
                     if (whatsapp.isNotEmpty) const SizedBox(height: 12),
@@ -292,6 +360,7 @@ class _VenueDetailPageState extends State<VenueDetailPage> {
                       icon: Icons.phone_outlined,
                       title: 'Teléfono',
                       subtitle: phone,
+                      onTap: () => _callPhone(phone),
                     ),
                   ],
                 ],
@@ -330,10 +399,10 @@ class _CourtCard extends StatelessWidget {
     final description = (court['description'] ?? '').toString();
     final isIndoor = court['is_indoor'] == true;
     final price = _priceText(court['price_per_hour']);
+    final imageUrl = (court['image_url'] ?? '').toString();
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(24),
         color: theme.colorScheme.surface,
@@ -351,50 +420,73 @@ class _CourtCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            name,
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              if (sportType.isNotEmpty) _VenueChip(label: sportType),
-              if (surfaceType.isNotEmpty) _VenueChip(label: surfaceType),
-              _VenueChip(label: isIndoor ? 'Indoor' : 'Outdoor'),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            price,
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          if (description.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              description,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                height: 1.35,
+          if (imageUrl.isNotEmpty)
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(24),
               ),
-            ),
-          ],
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: onReserve,
-                  icon: const Icon(Icons.calendar_month_outlined),
-                  label: const Text('Ver horarios'),
+              child: SizedBox(
+                height: 170,
+                width: double.infinity,
+                child: Image.network(
+                  imageUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                 ),
               ),
-            ],
+            ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (sportType.isNotEmpty) _VenueChip(label: sportType),
+                    if (surfaceType.isNotEmpty) _VenueChip(label: surfaceType),
+                    _VenueChip(label: isIndoor ? 'Indoor' : 'Outdoor'),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  price,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (description.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    description,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: onReserve,
+                        icon: const Icon(Icons.calendar_month_outlined),
+                        label: const Text('Ver horarios'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -431,60 +523,73 @@ class _ContactTile extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
+  final VoidCallback onTap;
 
   const _ContactTile({
     required this.icon,
     required this.title,
     required this.subtitle,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
         borderRadius: BorderRadius.circular(22),
-        color: theme.colorScheme.surface,
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withOpacity(0.22),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            color: theme.colorScheme.surface,
+            border: Border.all(
+              color: theme.colorScheme.outlineVariant.withOpacity(0.22),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  icon,
+                  color: theme.colorScheme.onPrimaryContainer,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
         ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primaryContainer,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(
-              icon,
-              color: theme.colorScheme.onPrimaryContainer,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }

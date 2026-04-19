@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../courts/presentation/pages/courts_page.dart';
 import '../../../home/presentation/pages/home_page.dart';
 import '../../../profile/presentation/pages/profile_page.dart';
+import '../../../reservations/presentation/pages/my_reservations_page.dart';
 import '../../../tournaments/presentation/pages/tournaments_page.dart';
 
 class MainNavigationPage extends StatefulWidget {
@@ -40,6 +41,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
       CourtsPage(
         selectedCity: widget.selectedCity,
       ),
+      const MyReservationsPage(),
       ProfilePage(
         isDarkMode: widget.isDarkMode,
         onThemeChanged: widget.onThemeChanged,
@@ -145,6 +147,11 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
                           icon: Icon(Icons.stadium_outlined),
                           selectedIcon: Icon(Icons.stadium_rounded),
                           label: 'Canchas',
+                        ),
+                        NavigationDestination(
+                          icon: Icon(Icons.receipt_long_outlined),
+                          selectedIcon: Icon(Icons.receipt_long_rounded),
+                          label: 'Reservas',
                         ),
                         NavigationDestination(
                           icon: Icon(Icons.person_outline),

@@ -43,7 +43,14 @@ class CourtsRemoteService {
       return [];
     }
 
-    final venueIds = filteredVenues.map((v) => v['id']).toList();
+    final venueIds = filteredVenues
+        .map((v) => v['id'])
+        .where((id) => id != null)
+        .toList();
+
+    if (venueIds.isEmpty) {
+      return [];
+    }
 
     final courtsResponse = await _client
         .from('courts')
@@ -56,7 +63,7 @@ class CourtsRemoteService {
 
     final courts = List<Map<String, dynamic>>.from(courtsResponse);
 
-    return filteredVenues.map((venue) {
+    final result = filteredVenues.map((venue) {
       final venueCourts = courts
           .where((court) => court['venue_id'] == venue['id'])
           .toList();
@@ -87,6 +94,12 @@ class CourtsRemoteService {
         'courts_count': venueCourts.length,
         'min_price': minPrice,
       };
+    }).where((venue) {
+      final isActive = venue['is_active'] == true;
+      final courtsCount = (venue['courts_count'] ?? 0) as int;
+      return isActive && courtsCount > 0;
     }).toList();
+
+    return result;
   }
 }

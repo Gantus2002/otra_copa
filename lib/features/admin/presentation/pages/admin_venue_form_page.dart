@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../../core/services/storage_service.dart';
+
 class AdminVenueFormPage extends StatefulWidget {
   final Map<String, dynamic>? venue;
   final String? forcedOwnerUserId;
@@ -30,7 +32,11 @@ class _AdminVenueFormPageState extends State<AdminVenueFormPage> {
   final percentageController = TextEditingController(text: '20');
   final timeLimitController = TextEditingController(text: '10');
 
+  final StorageService _storageService = StorageService();
+
   bool isSaving = false;
+  bool isUploadingImage = false;
+  String? previewImage;
 
   final List<String> cities = const [
     'Asunción',
@@ -76,6 +82,10 @@ class _AdminVenueFormPageState extends State<AdminVenueFormPage> {
       timeLimitController.text =
           (v['payment_time_limit_minutes'] ?? 10).toString();
     }
+
+    previewImage = imageController.text.trim().isEmpty
+        ? null
+        : imageController.text.trim();
   }
 
   @override
@@ -91,6 +101,36 @@ class _AdminVenueFormPageState extends State<AdminVenueFormPage> {
     percentageController.dispose();
     timeLimitController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickVenueImage() async {
+    try {
+      setState(() {
+        isUploadingImage = true;
+      });
+
+      final url = await _storageService.pickAndUploadImage(
+        folder: 'venues',
+      );
+
+      if (url != null) {
+        setState(() {
+          imageController.text = url;
+          previewImage = url;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error subiendo imagen: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          isUploadingImage = false;
+        });
+      }
+    }
   }
 
   Future<void> _save() async {
@@ -223,6 +263,42 @@ class _AdminVenueFormPageState extends State<AdminVenueFormPage> {
             controller: imageController,
             decoration: const InputDecoration(
               labelText: 'URL imagen portada',
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (previewImage != null && previewImage!.isNotEmpty)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Image.network(
+                previewImage!,
+                height: 180,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  height: 180,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    color: Colors.grey.shade200,
+                  ),
+                  child: const Text('No se pudo cargar la imagen'),
+                ),
+              ),
+            ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: isUploadingImage ? null : _pickVenueImage,
+            icon: isUploadingImage
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.photo_library_outlined),
+            label: Text(
+              isUploadingImage
+                  ? 'Subiendo imagen...'
+                  : 'Subir imagen desde galería',
             ),
           ),
           const SizedBox(height: 20),

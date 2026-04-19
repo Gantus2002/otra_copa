@@ -5,10 +5,11 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../admin/presentation/pages/admin_dashboard_page.dart';
-import '../../../admin/presentation/pages/admin_verification_page.dart';
+import '../../../admin/presentation/pages/admin_reservations_page.dart';
 import '../../../auth/data/auth_service.dart';
 import '../../../player/data/player_review_service.dart';
 import '../../../player/data/player_stats_service.dart';
+import '../../../venue/presentation/pages/venue_dashboard_page.dart';
 
 class ProfilePage extends StatefulWidget {
   final bool isDarkMode;
@@ -407,9 +408,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       ],
                     ),
                   ),
-
                   const SizedBox(height: 20),
-
                   _GlassCard(
                     child: SwitchListTile(
                       value: widget.isDarkMode,
@@ -438,15 +437,12 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 26),
-
                   _SectionHeader(
                     title: 'Resumen general',
                     subtitle: 'Tus números principales dentro de la app',
                   ),
                   const SizedBox(height: 14),
-
                   Row(
                     children: [
                       Expanded(
@@ -486,15 +482,12 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
                     ],
                   ),
-
                   const SizedBox(height: 26),
-
                   _SectionHeader(
                     title: 'Reputación',
                     subtitle: 'Cómo te valoran otros jugadores y organizadores',
                   ),
                   const SizedBox(height: 14),
-
                   if (reviews.isEmpty)
                     const _EmptyCard(
                       text: 'Todavía no tenés valoraciones cargadas.',
@@ -540,15 +533,12 @@ class _ProfilePageState extends State<ProfilePage> {
                       ],
                     ),
                   ],
-
                   const SizedBox(height: 26),
-
                   _SectionHeader(
                     title: 'Historial por torneo',
                     subtitle: 'Tus estadísticas desglosadas por competencia',
                   ),
                   const SizedBox(height: 14),
-
                   if (stats.isEmpty)
                     const _EmptyCard(
                       text: 'Todavía no tenés estadísticas cargadas en torneos.',
@@ -592,15 +582,12 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                       ),
                     ),
-
                   const SizedBox(height: 26),
-
                   _SectionHeader(
                     title: 'Comentarios recientes',
                     subtitle: 'Lo último que dejaron sobre tu desempeño',
                   ),
                   const SizedBox(height: 14),
-
                   if (recentReviews.isEmpty)
                     const _EmptyCard(
                       text: 'Todavía no hay comentarios.',
@@ -677,9 +664,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                       ),
                     ),
-
                   const SizedBox(height: 22),
-
                   if (role == 'super_admin' || role == 'admin') ...[
                     _ActionTile(
                       icon: Icons.admin_panel_settings_outlined,
@@ -695,8 +680,37 @@ class _ProfilePageState extends State<ProfilePage> {
                       },
                     ),
                     const SizedBox(height: 12),
+                    _ActionTile(
+                      icon: Icons.receipt_long_outlined,
+                      title: 'Todas las reservas',
+                      subtitle: 'Ver y controlar reservas de toda la app',
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const AdminReservationsPage(),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
                   ],
-
+                  if (role == 'venue') ...[
+                    _ActionTile(
+                      icon: Icons.stadium_outlined,
+                      title: 'Panel de cancha',
+                      subtitle: 'Gestionar complejo, canchas, horarios y reservas',
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const VenueDashboardPage(),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   _ActionTile(
                     icon: Icons.logout,
                     title: 'Cerrar sesión',

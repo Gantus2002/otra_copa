@@ -12,10 +12,10 @@ class CourtsPage extends StatefulWidget {
   });
 
   @override
-  State<CourtsPage> createState() => _CourtsPageState();
+  State<CourtsPage> createState() => CourtsPageState();
 }
 
-class _CourtsPageState extends State<CourtsPage> {
+class CourtsPageState extends State<CourtsPage> {
   final CourtsRemoteService _service = CourtsRemoteService();
   final TextEditingController _searchController = TextEditingController();
 
@@ -29,6 +29,19 @@ class _CourtsPageState extends State<CourtsPage> {
     super.initState();
     _loadVenues();
     _searchController.addListener(_applyFilter);
+  }
+
+  Future<void> reloadVenues() async {
+    await _loadVenues();
+  }
+
+  @override
+  void didUpdateWidget(covariant CourtsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.selectedCity != widget.selectedCity) {
+      _loadVenues();
+    }
   }
 
   @override
@@ -267,7 +280,6 @@ class _VenueCard extends StatelessWidget {
                     venue['name']?.toString() ?? 'Cancha',
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w800,
-                      letterSpacing: -0.2,
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -338,8 +350,6 @@ class _FallbackCover extends StatelessWidget {
             theme.colorScheme.primary,
             theme.colorScheme.primaryContainer,
           ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
         ),
       ),
       alignment: Alignment.bottomLeft,

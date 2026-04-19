@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../../core/services/storage_service.dart';
 class AdminCourtFormPage extends StatefulWidget {
   final Map<String, dynamic> venue;
   final Map<String, dynamic>? court;
@@ -20,8 +21,13 @@ class _AdminCourtFormPageState extends State<AdminCourtFormPage> {
   final descriptionController = TextEditingController();
   final priceController = TextEditingController();
 
+  final StorageService _storageService = StorageService();
+
   bool isSaving = false;
   bool isIndoor = false;
+  bool isUploadingImage = false;
+
+  String? imageUrl;
 
   final List<String> sportTypes = const [
     'Fútbol 5',
@@ -64,6 +70,9 @@ class _AdminCourtFormPageState extends State<AdminCourtFormPage> {
           ? null
           : (c['surface_type'] ?? '').toString();
       isIndoor = c['is_indoor'] == true;
+      imageUrl = (c['image_url'] ?? '').toString().trim().isEmpty
+          ? null
+          : (c['image_url'] ?? '').toString();
     }
   }
 
@@ -73,6 +82,35 @@ class _AdminCourtFormPageState extends State<AdminCourtFormPage> {
     descriptionController.dispose();
     priceController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickCourtImage() async {
+    try {
+      setState(() {
+        isUploadingImage = true;
+      });
+
+      final url = await _storageService.pickAndUploadImage(
+        folder: 'courts',
+      );
+
+      if (url != null) {
+        setState(() {
+          imageUrl = url;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error subiendo imagen: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          isUploadingImage = false;
+        });
+      }
+    }
   }
 
   Future<void> _save() async {
@@ -102,6 +140,7 @@ class _AdminCourtFormPageState extends State<AdminCourtFormPage> {
         'description': descriptionController.text.trim(),
         'price_per_hour': parsedPrice ?? 0,
         'is_indoor': isIndoor,
+        'image_url': imageUrl,
       };
 
       if (widget.court == null) {
@@ -209,6 +248,42 @@ class _AdminCourtFormPageState extends State<AdminCourtFormPage> {
             maxLines: 4,
             decoration: const InputDecoration(
               labelText: 'Descripción',
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (imageUrl != null && imageUrl!.isNotEmpty)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Image.network(
+                imageUrl!,
+                height: 180,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  height: 180,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    color: Colors.grey.shade200,
+                  ),
+                  child: const Text('No se pudo cargar la imagen'),
+                ),
+              ),
+            ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: isUploadingImage ? null : _pickCourtImage,
+            icon: isUploadingImage
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.photo_library_outlined),
+            label: Text(
+              isUploadingImage
+                  ? 'Subiendo imagen...'
+                  : 'Subir imagen de cancha',
             ),
           ),
           const SizedBox(height: 20),

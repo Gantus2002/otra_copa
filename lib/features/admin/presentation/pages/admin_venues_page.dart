@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../venue/presentation/pages/venue_calendar_page.dart';
 import 'admin_courts_page.dart';
 import 'admin_venue_form_page.dart';
 
@@ -14,6 +15,7 @@ class AdminVenuesPage extends StatefulWidget {
 class _AdminVenuesPageState extends State<AdminVenuesPage> {
   List<Map<String, dynamic>> venues = [];
   bool isLoading = true;
+  final Set<int> togglingVenueIds = {};
 
   @override
   void initState() {
@@ -52,11 +54,11 @@ class _AdminVenuesPageState extends State<AdminVenuesPage> {
       _safeSetState(() {
         isLoading = false;
       });
-      _showSnackBar('Error cargando canchas');
+      _showSnackBar('Error cargando canchas: $e');
     }
   }
 
-  void _openForm({Map<String, dynamic>? venue}) async {
+  Future<void> _openForm({Map<String, dynamic>? venue}) async {
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -67,36 +69,76 @@ class _AdminVenuesPageState extends State<AdminVenuesPage> {
     await _loadVenues();
   }
 
-  void _openCourts(Map<String, dynamic> venue) {
-    Navigator.push(
+  Future<void> _openCourts(Map<String, dynamic> venue) async {
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => AdminCourtsPage(venue: venue),
       ),
     );
+
+    await _loadVenues();
+  }
+
+  Future<void> _openCalendar(Map<String, dynamic> venue) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VenueCalendarPage(venue: venue),
+      ),
+    );
+
+    await _loadVenues();
   }
 
   Future<void> _toggleActive(Map<String, dynamic> venue) async {
-    try {
-      final newValue = !(venue['is_active'] == true);
+    final int venueId = venue['id'] as int;
+    final bool currentValue = venue['is_active'] == true;
+    final bool newValue = !currentValue;
 
+    _safeSetState(() {
+      togglingVenueIds.add(venueId);
+    });
+
+    try {
       await Supabase.instance.client
           .from('venues')
-          .update({'is_active': newValue}).eq('id', venue['id']);
+          .update({'is_active': newValue})
+          .eq('id', venueId);
 
-      await _loadVenues();
+      _safeSetState(() {
+        final index = venues.indexWhere((v) => v['id'] == venueId);
+        if (index != -1) {
+          venues[index] = {
+            ...venues[index],
+            'is_active': newValue,
+          };
+        }
+      });
+
+      _showSnackBar(
+        newValue ? 'Complejo activado' : 'Complejo desactivado',
+      );
     } catch (e) {
-      _showSnackBar('Error actualizando estado');
+      _showSnackBar('Error actualizando estado: $e');
+    } finally {
+      _safeSetState(() {
+        togglingVenueIds.remove(venueId);
+      });
     }
   }
 
   Future<void> _deleteVenue(int id) async {
     try {
-      await Supabase.instance.client.from('venues').delete().eq('id', id);
+      await Supabase.instance.client
+          .from('venues')
+          .delete()
+          .eq('id', id);
 
       await _loadVenues();
+      _showSnackBar('Complejo eliminado');
     } catch (e) {
-      _showSnackBar('Error eliminando cancha');
+      _showSnackBar('Error eliminando cancha: $e');
     }
   }
 
@@ -152,14 +194,16 @@ class _AdminVenuesPageState extends State<AdminVenuesPage> {
               : ListView(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
                   children: venues.map((venue) {
+                    final int venueId = venue['id'] as int;
                     final name = (venue['name'] ?? 'Sin nombre').toString();
                     final city = (venue['city'] ?? '').toString();
                     final active = venue['is_active'] == true;
+                    final isToggling = togglingVenueIds.contains(venueId);
 
                     return Container(
-                      margin: const EdgeInsets.only(bottom: 12),
+                      margin: const EdgeInsets.only(bottom: 14),
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(24),
+                        borderRadius: BorderRadius.circular(26),
                         color: theme.colorScheme.surface,
                         border: Border.all(
                           color: theme.colorScheme.outlineVariant.withOpacity(0.22),
@@ -172,53 +216,127 @@ class _AdminVenuesPageState extends State<AdminVenuesPage> {
                           ),
                         ],
                       ),
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        leading: Container(
-                          width: 46,
-                          height: 46,
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.primaryContainer,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Icon(
-                            Icons.stadium_outlined,
-                            color: theme.colorScheme.onPrimaryContainer,
-                          ),
-                        ),
-                        title: Text(
-                          name,
-                          style: const TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                        subtitle: Text(
-                          '$city • ${active ? 'Activo' : 'Inactivo'}',
-                        ),
-                        onTap: () => _openCourts(venue),
-                        trailing: PopupMenuButton<String>(
-                          onSelected: (value) {
-                            if (value == 'edit') {
-                              _openForm(venue: venue);
-                            } else if (value == 'toggle') {
-                              _toggleActive(venue);
-                            } else if (value == 'delete') {
-                              _confirmDelete(venue['id'] as int, name);
-                            }
-                          },
-                          itemBuilder: (_) => [
-                            const PopupMenuItem(
-                              value: 'edit',
-                              child: Text('Editar'),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  width: 50,
+                                  height: 50,
+                                  decoration: BoxDecoration(
+                                    color: theme.colorScheme.primaryContainer,
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Icon(
+                                    Icons.stadium_outlined,
+                                    color: theme.colorScheme.onPrimaryContainer,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: InkWell(
+                                    onTap: () => _openCourts(venue),
+                                    borderRadius: BorderRadius.circular(16),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 4),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            name,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 16,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 3),
+                                          Text(
+                                            '$city • ${active ? 'Activo' : 'Inactivo'}',
+                                            style: theme.textTheme.bodyMedium?.copyWith(
+                                              color: theme.colorScheme.onSurfaceVariant,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                PopupMenuButton<String>(
+                                  onSelected: (value) {
+                                    if (value == 'edit') {
+                                      _openForm(venue: venue);
+                                    } else if (value == 'toggle') {
+                                      _toggleActive(venue);
+                                    } else if (value == 'delete') {
+                                      _confirmDelete(venueId, name);
+                                    }
+                                  },
+                                  itemBuilder: (_) => [
+                                    const PopupMenuItem(
+                                      value: 'edit',
+                                      child: Text('Editar'),
+                                    ),
+                                    PopupMenuItem(
+                                      value: 'toggle',
+                                      child: Text(active ? 'Desactivar' : 'Activar'),
+                                    ),
+                                    const PopupMenuItem(
+                                      value: 'delete',
+                                      child: Text('Eliminar'),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
-                            PopupMenuItem(
-                              value: 'toggle',
-                              child: Text(active ? 'Desactivar' : 'Activar'),
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _VenueQuickAction(
+                                    icon: Icons.sports_soccer_outlined,
+                                    label: 'Canchas',
+                                    onTap: () => _openCourts(venue),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: _VenueQuickAction(
+                                    icon: Icons.calendar_month_outlined,
+                                    label: 'Calendario',
+                                    onTap: () => _openCalendar(venue),
+                                  ),
+                                ),
+                              ],
                             ),
-                            const PopupMenuItem(
-                              value: 'delete',
-                              child: Text('Eliminar'),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _VenueQuickAction(
+                                    icon: Icons.edit_outlined,
+                                    label: 'Editar',
+                                    filled: true,
+                                    onTap: () => _openForm(venue: venue),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: _VenueQuickAction(
+                                    icon: active
+                                        ? Icons.visibility_off_outlined
+                                        : Icons.visibility_outlined,
+                                    label: isToggling
+                                        ? 'Cambiando...'
+                                        : active
+                                            ? 'Desactivar'
+                                            : 'Activar',
+                                    onTap: isToggling ? null : () => _toggleActive(venue),
+                                    trailingLoader: isToggling,
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -226,6 +344,77 @@ class _AdminVenuesPageState extends State<AdminVenuesPage> {
                     );
                   }).toList(),
                 ),
+    );
+  }
+}
+
+class _VenueQuickAction extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  final bool filled;
+  final bool trailingLoader;
+
+  const _VenueQuickAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.filled = false,
+    this.trailingLoader = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final backgroundColor =
+        filled ? theme.colorScheme.primaryContainer : theme.colorScheme.surface;
+    final borderColor = filled
+        ? theme.colorScheme.primaryContainer
+        : theme.colorScheme.outlineVariant.withOpacity(0.35);
+    final foregroundColor =
+        filled ? theme.colorScheme.onPrimaryContainer : theme.colorScheme.primary;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        height: 60,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          color: backgroundColor,
+          border: Border.all(color: borderColor),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (trailingLoader)
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: foregroundColor,
+                ),
+              )
+            else
+              Icon(icon, size: 18, color: foregroundColor),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: foregroundColor,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
