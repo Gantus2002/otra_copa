@@ -2,8 +2,8 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../../../courts/presentation/pages/courts_page.dart';
 import '../../../home/presentation/pages/home_page.dart';
-import '../../../my_tournaments/presentation/pages/my_tournaments_page.dart';
 import '../../../profile/presentation/pages/profile_page.dart';
 import '../../../tournaments/presentation/pages/tournaments_page.dart';
 
@@ -37,7 +37,9 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
       TournamentsPage(
         selectedCity: widget.selectedCity,
       ),
-      const MyTournamentsPage(),
+      CourtsPage(
+        selectedCity: widget.selectedCity,
+      ),
       ProfilePage(
         isDarkMode: widget.isDarkMode,
         onThemeChanged: widget.onThemeChanged,
@@ -140,9 +142,9 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
                           label: 'Torneos',
                         ),
                         NavigationDestination(
-                          icon: Icon(Icons.list_alt_outlined),
-                          selectedIcon: Icon(Icons.list_alt_rounded),
-                          label: 'Mis torneos',
+                          icon: Icon(Icons.stadium_outlined),
+                          selectedIcon: Icon(Icons.stadium_rounded),
+                          label: 'Canchas',
                         ),
                         NavigationDestination(
                           icon: Icon(Icons.person_outline),

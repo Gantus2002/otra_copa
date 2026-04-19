@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../admin/presentation/pages/admin_dashboard_page.dart';
 import '../../../admin/presentation/pages/admin_verification_page.dart';
 import '../../../auth/data/auth_service.dart';
 import '../../../player/data/player_review_service.dart';
@@ -614,11 +615,10 @@ class _ProfilePageState extends State<ProfilePage> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               _ReviewerAvatar(
-                                name: (review['reviewer_name'] ??
-                                        'Jugador')
+                                name: (review['reviewer_name'] ?? 'Jugador')
                                     .toString(),
-                                avatarUrl: review['reviewer_avatar_url']
-                                    ?.toString(),
+                                avatarUrl:
+                                    review['reviewer_avatar_url']?.toString(),
                               ),
                               const SizedBox(width: 12),
                               Expanded(
@@ -628,7 +628,8 @@ class _ProfilePageState extends State<ProfilePage> {
                                     Text(
                                       (review['reviewer_name'] ?? 'Jugador')
                                           .toString(),
-                                      style: theme.textTheme.titleSmall?.copyWith(
+                                      style:
+                                          theme.textTheme.titleSmall?.copyWith(
                                         fontWeight: FontWeight.w800,
                                       ),
                                     ),
@@ -663,7 +664,8 @@ class _ProfilePageState extends State<ProfilePage> {
                                                   .isEmpty)
                                           ? 'Sin comentario'
                                           : review['comment'].toString(),
-                                      style: theme.textTheme.bodyLarge?.copyWith(
+                                      style:
+                                          theme.textTheme.bodyLarge?.copyWith(
                                         height: 1.35,
                                       ),
                                     ),
@@ -687,7 +689,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => const AdminVerificationPage(),
+                            builder: (_) => const AdminDashboardPage(),
                           ),
                         );
                       },
