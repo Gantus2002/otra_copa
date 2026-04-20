@@ -12,33 +12,52 @@ class MyReservationsPage extends StatefulWidget {
 }
 
 class _MyReservationsPageState extends State<MyReservationsPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   List<Map<String, dynamic>> reservations = [];
   bool isLoading = true;
   bool isCancelling = false;
 
   Timer? _timer;
+  Timer? _reloadTimer;
   late final TabController _tabController;
+
+  final Set<int> _notifiedExpiredReservationIds = {};
+  bool _isReloading = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     _tabController = TabController(length: 2, vsync: this);
+
     _loadReservations();
 
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) {
-        setState(() {});
-      }
+      if (!mounted) return;
+      _checkExpiringReservations();
+      setState(() {});
+    });
+
+    _reloadTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      _loadReservations(showLoader: false);
     });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
+    _reloadTimer?.cancel();
     _tabController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadReservations(showLoader: false);
+    }
   }
 
   void _showSnackBar(String message) {
@@ -48,7 +67,26 @@ class _MyReservationsPageState extends State<MyReservationsPage>
     );
   }
 
-  Future<void> _loadReservations() async {
+  void _checkExpiringReservations() {
+    for (final reservation in reservations) {
+      final reservationId = reservation['id'];
+      if (reservationId is! int) continue;
+
+      final expired = _isExpired(reservation);
+      final status = (reservation['status'] ?? '').toString();
+
+      if (status == 'pending_payment' && expired) {
+        if (_notifiedExpiredReservationIds.contains(reservationId)) continue;
+
+        _notifiedExpiredReservationIds.add(reservationId);
+        _showSnackBar('Una de tus reservas venció');
+      }
+    }
+  }
+
+  Future<void> _loadReservations({bool showLoader = true}) async {
+    if (_isReloading) return;
+
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) {
       if (!mounted) return;
@@ -57,6 +95,15 @@ class _MyReservationsPageState extends State<MyReservationsPage>
         isLoading = false;
       });
       return;
+    }
+
+    _isReloading = true;
+
+    if (showLoader) {
+      if (!mounted) return;
+      setState(() {
+        isLoading = true;
+      });
     }
 
     try {
@@ -78,8 +125,10 @@ class _MyReservationsPageState extends State<MyReservationsPage>
           return aActive ? -1 : 1;
         }
 
-        final aPending = (a['status'] ?? '') == 'pending_payment' && !_isExpired(a);
-        final bPending = (b['status'] ?? '') == 'pending_payment' && !_isExpired(b);
+        final aPending =
+            (a['status'] ?? '') == 'pending_payment' && !_isExpired(a);
+        final bPending =
+            (b['status'] ?? '') == 'pending_payment' && !_isExpired(b);
 
         if (aPending && bPending) {
           final aExp = _expiresAt(a);
@@ -97,14 +146,14 @@ class _MyReservationsPageState extends State<MyReservationsPage>
         reservations = loaded;
         isLoading = false;
       });
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
 
       setState(() {
         isLoading = false;
       });
-
-      _showSnackBar('Error cargando reservas');
+    } finally {
+      _isReloading = false;
     }
   }
 
@@ -115,7 +164,10 @@ class _MyReservationsPageState extends State<MyReservationsPage>
   }
 
   bool _isExpired(Map<String, dynamic> reservation) {
-    if (reservation['status'] != 'pending_payment') return false;
+    final status = (reservation['status'] ?? '').toString();
+
+    if (status == 'expired') return true;
+    if (status != 'pending_payment') return false;
 
     final expiresAt = _expiresAt(reservation);
     if (expiresAt == null) return false;
@@ -181,6 +233,7 @@ class _MyReservationsPageState extends State<MyReservationsPage>
 
     if (status == 'confirmed') return Colors.green;
     if (status == 'cancelled') return Colors.grey;
+    if (status == 'expired') return Colors.red;
     if (status == 'pending_payment') {
       final remaining = _remainingDuration(reservation).inSeconds;
       if (_isExpired(reservation)) return Colors.red;
@@ -197,6 +250,7 @@ class _MyReservationsPageState extends State<MyReservationsPage>
 
     if (status == 'confirmed') return 'Confirmada';
     if (status == 'cancelled') return 'Cancelada';
+    if (status == 'expired') return 'Vencida';
     if (status == 'pending_payment') {
       return _isExpired(reservation) ? 'Vencida' : 'Pendiente';
     }
@@ -330,9 +384,9 @@ class _MyReservationsPageState extends State<MyReservationsPage>
           })
           .eq('id', reservation['id']);
 
-      await _loadReservations();
+      await _loadReservations(showLoader: false);
       _showSnackBar('Reserva cancelada');
-    } catch (e) {
+    } catch (_) {
       _showSnackBar('No se pudo cancelar la reserva');
     } finally {
       if (!mounted) return;
@@ -371,7 +425,7 @@ class _MyReservationsPageState extends State<MyReservationsPage>
               child: CircularProgressIndicator(),
             )
           : RefreshIndicator(
-              onRefresh: _loadReservations,
+              onRefresh: () => _loadReservations(showLoader: false),
               child: TabBarView(
                 controller: _tabController,
                 children: [
@@ -485,7 +539,8 @@ class _ReservationsList extends StatelessWidget {
         final progress = remainingProgress(reservation);
         final soon = pending && !expired && remaining.inSeconds <= 120;
 
-        return Container(
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
           margin: const EdgeInsets.only(bottom: 14),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -603,7 +658,8 @@ class _ReservationsList extends StatelessWidget {
                   children: [
                     Expanded(
                       child: FilledButton.icon(
-                        onPressed: expired ? null : () => onOpenWhatsApp(reservation),
+                        onPressed:
+                            expired ? null : () => onOpenWhatsApp(reservation),
                         icon: const Icon(Icons.chat_bubble_outline),
                         label: const Text('Enviar comprobante'),
                       ),

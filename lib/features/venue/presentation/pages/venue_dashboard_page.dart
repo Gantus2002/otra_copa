@@ -298,6 +298,13 @@ class _VenueDashboardPageState extends State<VenueDashboardPage> {
                   ),
                   const SizedBox(height: 20),
                   if (myVenue != null) ...[
+                    if (pendingCount > 0) ...[
+                      _PendingHighlightCard(
+                        pendingCount: pendingCount,
+                        onTap: _openReservations,
+                      ),
+                      const SizedBox(height: 20),
+                    ],
                     _SectionTitle(
                       title: 'Resumen rápido',
                       subtitle: 'Lo más importante de tu complejo hoy',
@@ -386,9 +393,14 @@ class _VenueDashboardPageState extends State<VenueDashboardPage> {
                     const SizedBox(height: 12),
                     _VenueActionTile(
                       icon: Icons.receipt_long_outlined,
-                      title: 'Reservas',
-                      subtitle: 'Ver reservas, pagos y confirmaciones',
+                      title: pendingCount > 0
+                          ? 'Reservas pendientes ($pendingCount)'
+                          : 'Reservas',
+                      subtitle: pendingCount > 0
+                          ? 'Entrá para confirmar o cancelar pagos pendientes'
+                          : 'Ver reservas, pagos y confirmaciones',
                       onTap: _openReservations,
+                      highlighted: pendingCount > 0,
                     ),
                     const SizedBox(height: 12),
                     _VenueActionTile(
@@ -401,6 +413,80 @@ class _VenueDashboardPageState extends State<VenueDashboardPage> {
                 ],
               ),
             ),
+    );
+  }
+}
+
+class _PendingHighlightCard extends StatelessWidget {
+  final int pendingCount;
+  final VoidCallback onTap;
+
+  const _PendingHighlightCard({
+    required this.pendingCount,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: onTap,
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            color: Colors.orange.withOpacity(0.10),
+            border: Border.all(
+              color: Colors.orange.withOpacity(0.25),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(
+                    Icons.notifications_active_outlined,
+                    color: Colors.orange,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Tenés $pendingCount reservas pendientes',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Entrá para confirmarlas o cancelarlas.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Icon(Icons.chevron_right),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -511,24 +597,34 @@ class _VenueActionTile extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+  final bool highlighted;
 
   const _VenueActionTile({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.highlighted = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    final borderColor = highlighted
+        ? Colors.orange.withOpacity(0.28)
+        : theme.colorScheme.outlineVariant.withOpacity(0.22);
+
+    final backgroundColor = highlighted
+        ? Colors.orange.withOpacity(0.06)
+        : theme.colorScheme.surface;
+
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(24),
-        color: theme.colorScheme.surface,
+        color: backgroundColor,
         border: Border.all(
-          color: theme.colorScheme.outlineVariant.withOpacity(0.22),
+          color: borderColor,
         ),
         boxShadow: [
           BoxShadow(
@@ -544,12 +640,16 @@ class _VenueActionTile extends StatelessWidget {
           width: 46,
           height: 46,
           decoration: BoxDecoration(
-            color: theme.colorScheme.primaryContainer,
+            color: highlighted
+                ? Colors.orange.withOpacity(0.15)
+                : theme.colorScheme.primaryContainer,
             borderRadius: BorderRadius.circular(16),
           ),
           child: Icon(
             icon,
-            color: theme.colorScheme.onPrimaryContainer,
+            color: highlighted
+                ? Colors.orange
+                : theme.colorScheme.onPrimaryContainer,
           ),
         ),
         title: Text(

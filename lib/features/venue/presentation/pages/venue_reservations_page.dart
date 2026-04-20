@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -19,10 +21,28 @@ class _VenueReservationsPageState extends State<VenueReservationsPage> {
   bool isLoading = true;
   String selectedFilter = 'today';
 
+  RealtimeChannel? _channel;
+  Timer? _ticker;
+  Timer? _debounceReloadTimer;
+
   @override
   void initState() {
     super.initState();
     _loadReservations();
+    _setupRealtime();
+
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    _debounceReloadTimer?.cancel();
+    _channel?.unsubscribe();
+    super.dispose();
   }
 
   void _safeSetState(VoidCallback fn) {
@@ -37,22 +57,83 @@ class _VenueReservationsPageState extends State<VenueReservationsPage> {
     );
   }
 
+  void _setupRealtime() {
+    final venueId = widget.venue['id'];
+    if (venueId == null) return;
+
+    _channel = Supabase.instance.client
+        .channel('venue-reservations-${venueId.toString()}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'court_reservations',
+          callback: (payload) {
+            final newVenueId = payload.newRecord['venue_id'];
+            final oldVenueId = payload.oldRecord['venue_id'];
+
+            final affectsThisVenue =
+                newVenueId == venueId || oldVenueId == venueId;
+
+            if (!affectsThisVenue) return;
+
+            _scheduleReloadFromRealtime();
+
+            if (!mounted) return;
+
+            switch (payload.eventType) {
+              case PostgresChangeEvent.insert:
+                _showSnackBar('Entró una nueva reserva');
+                break;
+              case PostgresChangeEvent.update:
+                final status = (payload.newRecord['status'] ?? '').toString();
+
+                if (status == 'confirmed') {
+                  _showSnackBar('Reserva confirmada');
+                } else if (status == 'cancelled') {
+                  _showSnackBar('Reserva cancelada');
+                } else if (status == 'expired') {
+                  _showSnackBar('Una reserva venció');
+                } else {
+                  _showSnackBar('Reserva actualizada');
+                }
+                break;
+              case PostgresChangeEvent.delete:
+                _showSnackBar('Una reserva fue eliminada');
+                break;
+              default:
+                break;
+            }
+          },
+        )
+        .subscribe();
+  }
+
+  void _scheduleReloadFromRealtime() {
+    _debounceReloadTimer?.cancel();
+    _debounceReloadTimer = Timer(const Duration(milliseconds: 500), () {
+      _loadReservations(showLoader: false);
+    });
+  }
+
   Future<void> _expireOldReservations() async {
     try {
       await Supabase.instance.client
           .from('court_reservations')
           .update({
             'status': 'expired',
+            'payment_status': 'rejected',
           })
           .eq('status', 'pending_payment')
           .lt('expires_at', DateTime.now().toIso8601String());
     } catch (_) {}
   }
 
-  Future<void> _loadReservations() async {
-    _safeSetState(() {
-      isLoading = true;
-    });
+  Future<void> _loadReservations({bool showLoader = true}) async {
+    if (showLoader) {
+      _safeSetState(() {
+        isLoading = true;
+      });
+    }
 
     try {
       await _expireOldReservations();
@@ -66,8 +147,24 @@ class _VenueReservationsPageState extends State<VenueReservationsPage> {
           .order('reservation_date', ascending: true)
           .order('start_time', ascending: true);
 
+      final loaded = List<Map<String, dynamic>>.from(response);
+
+      loaded.sort((a, b) {
+        final aStatus = (a['status'] ?? '').toString();
+        final bStatus = (b['status'] ?? '').toString();
+
+        if (aStatus == 'pending_payment' && bStatus != 'pending_payment') {
+          return -1;
+        }
+        if (bStatus == 'pending_payment' && aStatus != 'pending_payment') {
+          return 1;
+        }
+
+        return 0;
+      });
+
       _safeSetState(() {
-        reservations = List<Map<String, dynamic>>.from(response);
+        reservations = loaded;
         isLoading = false;
       });
     } catch (e) {
@@ -97,11 +194,75 @@ class _VenueReservationsPageState extends State<VenueReservationsPage> {
           .update(data)
           .eq('id', reservationId);
 
-      await _loadReservations();
+      await _loadReservations(showLoader: false);
       _showSnackBar('Reserva actualizada');
     } catch (e) {
       _showSnackBar('Error actualizando reserva: $e');
     }
+  }
+
+  Future<void> _confirmReservation({
+    required int reservationId,
+  }) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Confirmar reserva'),
+        content: const Text(
+          '¿Confirmar esta reserva? Esto va a bloquear el horario.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Volver'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Confirmar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    await _updateReservation(
+      reservationId: reservationId,
+      status: 'confirmed',
+      paymentStatus: 'verified',
+    );
+  }
+
+  Future<void> _cancelReservation({
+    required int reservationId,
+  }) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Cancelar reserva'),
+        content: const Text(
+          '¿Seguro querés cancelar esta reserva?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Volver'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Cancelar reserva'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    await _updateReservation(
+      reservationId: reservationId,
+      status: 'cancelled',
+      paymentStatus: 'rejected',
+    );
   }
 
   Future<void> _openWhatsApp({
@@ -253,12 +414,11 @@ class _VenueReservationsPageState extends State<VenueReservationsPage> {
       return 'Vencida';
     }
 
-    final minutes = diff.inMinutes;
-    if (minutes <= 0) {
-      return 'Menos de 1 min';
-    }
+    final totalSeconds = diff.inSeconds;
+    final minutes = (totalSeconds ~/ 60).toString().padLeft(2, '0');
+    final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
 
-    return '$minutes min restantes';
+    return '$minutes:$seconds restantes';
   }
 
   bool _isNearExpiration(dynamic expiresAtRaw) {
@@ -281,7 +441,8 @@ class _VenueReservationsPageState extends State<VenueReservationsPage> {
             selectedFilter = value;
           });
         },
-        child: Container(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
             color: selected ? Colors.teal : Colors.grey.shade200,
@@ -301,10 +462,11 @@ class _VenueReservationsPageState extends State<VenueReservationsPage> {
   }
 
   List<Map<String, dynamic>> _filteredReservations() {
-    return reservations.where((r) {
+    return reservations.where((reservation) {
       if (selectedFilter == 'all') return true;
 
-      final date = DateTime.tryParse((r['reservation_date'] ?? '').toString());
+      final date =
+          DateTime.tryParse((reservation['reservation_date'] ?? '').toString());
       if (date == null) return false;
 
       final now = DateTime.now();
@@ -399,7 +561,8 @@ class _VenueReservationsPageState extends State<VenueReservationsPage> {
                               final nearExpiration = status == 'pending_payment' &&
                                   _isNearExpiration(expiresAt);
 
-                              return Container(
+                              return AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
                                 margin: const EdgeInsets.only(bottom: 12),
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(24),
@@ -425,6 +588,27 @@ class _VenueReservationsPageState extends State<VenueReservationsPage> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
+                                      if (status == 'pending_payment')
+                                        Container(
+                                          margin:
+                                              const EdgeInsets.only(bottom: 10),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 6,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.orange.withOpacity(0.15),
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                          ),
+                                          child: const Text(
+                                            '⚠ Pendiente de confirmación',
+                                            style: TextStyle(
+                                              color: Colors.orange,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
                                       Text(
                                         courtName,
                                         style: theme.textTheme.titleMedium
@@ -531,9 +715,7 @@ class _VenueReservationsPageState extends State<VenueReservationsPage> {
                                         children: [
                                           Expanded(
                                             child: OutlinedButton.icon(
-                                              onPressed: playerPhone
-                                                      .trim()
-                                                      .isEmpty
+                                              onPressed: playerPhone.trim().isEmpty
                                                   ? null
                                                   : () {
                                                       _openWhatsApp(
@@ -561,10 +743,8 @@ class _VenueReservationsPageState extends State<VenueReservationsPage> {
                                             Expanded(
                                               child: ElevatedButton.icon(
                                                 onPressed: () {
-                                                  _updateReservation(
+                                                  _confirmReservation(
                                                     reservationId: reservationId,
-                                                    status: 'confirmed',
-                                                    paymentStatus: 'verified',
                                                   );
                                                 },
                                                 icon: const Icon(
@@ -577,10 +757,8 @@ class _VenueReservationsPageState extends State<VenueReservationsPage> {
                                             Expanded(
                                               child: OutlinedButton.icon(
                                                 onPressed: () {
-                                                  _updateReservation(
+                                                  _cancelReservation(
                                                     reservationId: reservationId,
-                                                    status: 'cancelled',
-                                                    paymentStatus: 'rejected',
                                                   );
                                                 },
                                                 icon: const Icon(

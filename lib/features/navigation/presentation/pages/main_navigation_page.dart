@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../courts/presentation/pages/courts_page.dart';
 import '../../../home/presentation/pages/home_page.dart';
@@ -26,8 +28,89 @@ class MainNavigationPage extends StatefulWidget {
   State<MainNavigationPage> createState() => _MainNavigationPageState();
 }
 
-class _MainNavigationPageState extends State<MainNavigationPage> {
+class _MainNavigationPageState extends State<MainNavigationPage>
+    with WidgetsBindingObserver {
   int _currentIndex = 0;
+  int _pendingReservationsCount = 0;
+
+  Timer? _badgeTimer;
+  bool _isLoadingBadge = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+
+    _loadPendingReservationsCount();
+
+    _badgeTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      _loadPendingReservationsCount();
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _badgeTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadPendingReservationsCount();
+    }
+  }
+
+  Future<void> _loadPendingReservationsCount() async {
+    if (_isLoadingBadge) return;
+
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      if (!mounted) return;
+      setState(() {
+        _pendingReservationsCount = 0;
+      });
+      return;
+    }
+
+    _isLoadingBadge = true;
+
+    try {
+      final response = await Supabase.instance.client
+          .from('court_reservations')
+          .select('id, status, expires_at')
+          .eq('user_id', user.id)
+          .eq('status', 'pending_payment');
+
+      final rows = List<Map<String, dynamic>>.from(response);
+
+      int validPending = 0;
+
+      for (final row in rows) {
+        final expiresAtRaw = row['expires_at'];
+        final expiresAt = expiresAtRaw != null
+            ? DateTime.tryParse(expiresAtRaw.toString())
+            : null;
+
+        final expired =
+            expiresAt != null && expiresAt.isBefore(DateTime.now());
+
+        if (!expired) {
+          validPending++;
+        }
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _pendingReservationsCount = validPending;
+      });
+    } catch (_) {
+    } finally {
+      _isLoadingBadge = false;
+    }
+  }
 
   List<Widget> _buildPages() {
     return [
@@ -47,6 +130,60 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
         onThemeChanged: widget.onThemeChanged,
       ),
     ];
+  }
+
+  Widget _navIconWithBadge({
+    required IconData icon,
+    required bool selected,
+    required int badgeCount,
+  }) {
+    final baseIcon = Icon(
+      icon,
+      size: selected ? 25 : 23,
+    );
+
+    if (badgeCount <= 0) {
+      return baseIcon;
+    }
+
+    final badgeText = badgeCount > 9 ? '9+' : '$badgeCount';
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        baseIcon,
+        Positioned(
+          right: -8,
+          top: -6,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+            constraints: const BoxConstraints(
+              minWidth: 18,
+              minHeight: 18,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.red,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: Colors.white,
+                width: 1.2,
+              ),
+            ),
+            child: Center(
+              child: Text(
+                badgeText,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  height: 1,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -127,33 +264,43 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
                       labelBehavior:
                           NavigationDestinationLabelBehavior.alwaysShow,
                       animationDuration: const Duration(milliseconds: 500),
-                      onDestinationSelected: (index) {
+                      onDestinationSelected: (index) async {
                         setState(() {
                           _currentIndex = index;
                         });
+
+                        await _loadPendingReservationsCount();
                       },
-                      destinations: const [
-                        NavigationDestination(
+                      destinations: [
+                        const NavigationDestination(
                           icon: Icon(Icons.home_outlined),
                           selectedIcon: Icon(Icons.home_rounded),
                           label: 'Inicio',
                         ),
-                        NavigationDestination(
+                        const NavigationDestination(
                           icon: Icon(Icons.emoji_events_outlined),
                           selectedIcon: Icon(Icons.emoji_events_rounded),
                           label: 'Torneos',
                         ),
-                        NavigationDestination(
+                        const NavigationDestination(
                           icon: Icon(Icons.stadium_outlined),
                           selectedIcon: Icon(Icons.stadium_rounded),
                           label: 'Canchas',
                         ),
                         NavigationDestination(
-                          icon: Icon(Icons.receipt_long_outlined),
-                          selectedIcon: Icon(Icons.receipt_long_rounded),
+                          icon: _navIconWithBadge(
+                            icon: Icons.receipt_long_outlined,
+                            selected: false,
+                            badgeCount: _pendingReservationsCount,
+                          ),
+                          selectedIcon: _navIconWithBadge(
+                            icon: Icons.receipt_long_rounded,
+                            selected: true,
+                            badgeCount: _pendingReservationsCount,
+                          ),
                           label: 'Reservas',
                         ),
-                        NavigationDestination(
+                        const NavigationDestination(
                           icon: Icon(Icons.person_outline),
                           selectedIcon: Icon(Icons.person_rounded),
                           label: 'Perfil',

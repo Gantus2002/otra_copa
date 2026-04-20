@@ -114,12 +114,6 @@ class _CourtReservationPageState extends State<CourtReservationPage> {
     return '$h:$m';
   }
 
-  String _formatDateTime(DateTime dateTime) {
-    final hour = dateTime.hour.toString().padLeft(2, '0');
-    final minute = dateTime.minute.toString().padLeft(2, '0');
-    return '$hour:$minute';
-  }
-
   bool _overlaps(
     String startA,
     String endA,
@@ -276,6 +270,50 @@ class _CourtReservationPageState extends State<CourtReservationPage> {
     }
   }
 
+  Future<bool> _slotStillAvailable(_TimeSlot slot) async {
+    try {
+      final selectedDateDb = _dateToDb(selectedDate);
+
+      final blockedResponse = await Supabase.instance.client
+          .from('court_blocked_slots')
+          .select('id, start_time, end_time')
+          .eq('court_id', widget.court['id'])
+          .eq('blocked_date', selectedDateDb);
+
+      final activeReservationsResponse = await Supabase.instance.client
+          .from('court_reservations')
+          .select('id, start_time, end_time, status')
+          .eq('court_id', widget.court['id'])
+          .eq('reservation_date', selectedDateDb)
+          .inFilter('status', ['pending_payment', 'confirmed']);
+
+      final blocked = List<Map<String, dynamic>>.from(blockedResponse).any(
+        (b) => _overlaps(
+          slot.start,
+          slot.end,
+          (b['start_time'] ?? '').toString().substring(0, 5),
+          (b['end_time'] ?? '').toString().substring(0, 5),
+        ),
+      );
+
+      if (blocked) return false;
+
+      final reserved =
+          List<Map<String, dynamic>>.from(activeReservationsResponse).any(
+        (r) => _overlaps(
+          slot.start,
+          slot.end,
+          (r['start_time'] ?? '').toString().substring(0, 5),
+          (r['end_time'] ?? '').toString().substring(0, 5),
+        ),
+      );
+
+      return !reserved;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _openWhatsAppForProof(_TimeSlot slot) async {
     final phone = (widget.venue['whatsapp'] ?? '').toString().trim();
 
@@ -357,11 +395,23 @@ class _CourtReservationPageState extends State<CourtReservationPage> {
       return;
     }
 
+    if (isSaving) return;
+
     _safeSetState(() {
       isSaving = true;
     });
 
     try {
+      final stillAvailable = await _slotStillAvailable(slot);
+
+      if (!stillAvailable) {
+        await _loadAvailability();
+        _showSnackBar(
+          'Ese horario ya fue reservado o bloqueado. Elegí otro.',
+        );
+        return;
+      }
+
       final totalPrice = _hourPrice();
       final expiresAt = DateTime.now().add(
         Duration(minutes: _timeLimitMinutes()),
@@ -381,6 +431,8 @@ class _CourtReservationPageState extends State<CourtReservationPage> {
         'expires_at': expiresAt.toIso8601String(),
       });
 
+      await _loadAvailability();
+
       if (paymentMethod == 'bank_transfer') {
         await _showTransferPendingSheet(
           slot: slot,
@@ -389,9 +441,8 @@ class _CourtReservationPageState extends State<CourtReservationPage> {
       } else {
         _showSnackBar('Reserva creada correctamente');
       }
-
-      await _loadAvailability();
     } catch (e) {
+      await _loadAvailability();
       _showSnackBar('No se pudo reservar: $e');
     } finally {
       _safeSetState(() {
@@ -502,7 +553,9 @@ class _CourtReservationPageState extends State<CourtReservationPage> {
                         ),
                         const SizedBox(height: 10),
                         Text('Seña: ${_reservationPercentage()}%'),
-                        Text('Monto total: Gs. ${_hourPrice().toStringAsFixed(0)}'),
+                        Text(
+                          'Monto total: Gs. ${_hourPrice().toStringAsFixed(0)}',
+                        ),
                         Text('Monto a transferir: Gs. $deposit'),
                         Text('Tiempo límite: ${_timeLimitMinutes()} minutos'),
                         const SizedBox(height: 10),
