@@ -19,8 +19,9 @@ class AuthService {
     );
 
     final user = response.user;
+
     if (user == null) {
-      throw Exception('No se pudo crear el usuario');
+      throw Exception('No se pudo crear la cuenta');
     }
 
     await _client.from('profiles').upsert({
@@ -35,9 +36,46 @@ class AuthService {
     required String email,
     required String password,
   }) async {
-    await _client.auth.signInWithPassword(
+    final response = await _client.auth.signInWithPassword(
       email: email,
       password: password,
+    );
+
+    final user = response.user;
+
+    if (user == null) {
+      throw Exception('Credenciales incorrectas');
+    }
+
+    if (user.emailConfirmedAt == null) {
+      await _client.auth.signOut();
+      throw Exception('Debes confirmar tu email antes de ingresar');
+    }
+  }
+
+  Future<void> resendSignupConfirmation({
+    required String email,
+  }) async {
+    await _client.auth.resend(
+      type: OtpType.signup,
+      email: email,
+    );
+  }
+
+  Future<void> sendPasswordResetEmail({
+  required String email,
+}) async {
+  await _client.auth.resetPasswordForEmail(
+    email,
+    redirectTo: 'otra-copa://login-callback',
+  );
+}
+
+  Future<void> updatePassword({
+    required String newPassword,
+  }) async {
+    await _client.auth.updateUser(
+      UserAttributes(password: newPassword),
     );
   }
 
