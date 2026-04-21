@@ -3,7 +3,10 @@ import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../data/venue_review_service.dart';
 import 'court_reservation_page.dart';
+import 'venue_review_page.dart';
+import 'venue_reviews_page.dart';
 
 class VenueDetailPage extends StatefulWidget {
   final int venueId;
@@ -18,9 +21,16 @@ class VenueDetailPage extends StatefulWidget {
 }
 
 class _VenueDetailPageState extends State<VenueDetailPage> {
+  final VenueReviewService _reviewService = VenueReviewService();
+
   Map<String, dynamic>? venue;
   List<Map<String, dynamic>> courts = [];
+  List<Map<String, dynamic>> reviews = [];
+
   bool isLoading = true;
+  bool hasUserReview = false;
+  double avgRating = 0;
+  int totalReviews = 0;
 
   @override
   void initState() {
@@ -41,6 +51,10 @@ class _VenueDetailPageState extends State<VenueDetailPage> {
   }
 
   Future<void> _loadVenue() async {
+    _safeSetState(() {
+      isLoading = true;
+    });
+
     try {
       final venueResponse = await Supabase.instance.client
           .from('venues')
@@ -58,6 +72,11 @@ class _VenueDetailPageState extends State<VenueDetailPage> {
       _safeSetState(() {
         venue = Map<String, dynamic>.from(venueResponse);
         courts = List<Map<String, dynamic>>.from(courtsResponse);
+      });
+
+      await _loadReviewsData(showError: false);
+
+      _safeSetState(() {
         isLoading = false;
       });
     } catch (e) {
@@ -65,6 +84,32 @@ class _VenueDetailPageState extends State<VenueDetailPage> {
         isLoading = false;
       });
       _showSnackBar('Error cargando cancha');
+    }
+  }
+
+  Future<void> _loadReviewsData({bool showError = true}) async {
+    try {
+      final topReviews = await _reviewService.getTopReviews(widget.venueId);
+      final stats = await _reviewService.getStats(widget.venueId);
+      final reviewed = await _reviewService.hasUserReviewed(widget.venueId);
+
+      _safeSetState(() {
+        reviews = topReviews;
+        avgRating = (stats['avg'] as num).toDouble();
+        totalReviews = stats['count'] as int;
+        hasUserReview = reviewed;
+      });
+    } catch (e) {
+      _safeSetState(() {
+        reviews = [];
+        avgRating = 0;
+        totalReviews = 0;
+        hasUserReview = false;
+      });
+
+      if (showError) {
+        _showSnackBar('No se pudieron cargar las reseñas');
+      }
     }
   }
 
@@ -80,6 +125,40 @@ class _VenueDetailPageState extends State<VenueDetailPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _openReviewPage() async {
+    if (venue == null) return;
+
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VenueReviewPage(
+          venueId: widget.venueId,
+          venueName: (venue!['name'] ?? 'Complejo').toString(),
+        ),
+      ),
+    );
+
+    if (result == true) {
+      await _loadReviewsData();
+    }
+  }
+
+  Future<void> _openAllReviewsPage() async {
+    if (venue == null) return;
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VenueReviewsPage(
+          venueId: widget.venueId,
+          venueName: (venue!['name'] ?? 'Complejo').toString(),
+        ),
+      ),
+    );
+
+    await _loadReviewsData(showError: false);
   }
 
   void _shareVenue({
@@ -142,6 +221,25 @@ class _VenueDetailPageState extends State<VenueDetailPage> {
     } catch (_) {
       _showSnackBar('No se pudo abrir el teléfono');
     }
+  }
+
+  Future<void> _likeReview(int reviewId) async {
+    try {
+      await _reviewService.likeReview(reviewId);
+      await _loadReviewsData();
+      _showSnackBar('Like agregado');
+    } catch (e) {
+      _showSnackBar('No se pudo dar like');
+    }
+  }
+
+  String _dateText(dynamic raw) {
+    if (raw == null) return '';
+    final date = DateTime.tryParse(raw.toString());
+    if (date == null) return '';
+    return '${date.day.toString().padLeft(2, '0')}/'
+        '${date.month.toString().padLeft(2, '0')}/'
+        '${date.year}';
   }
 
   @override
@@ -292,7 +390,8 @@ class _VenueDetailPageState extends State<VenueDetailPage> {
                         borderRadius: BorderRadius.circular(22),
                         color: theme.colorScheme.surface,
                         border: Border.all(
-                          color: theme.colorScheme.outlineVariant.withOpacity(0.22),
+                          color:
+                              theme.colorScheme.outlineVariant.withOpacity(0.22),
                         ),
                       ),
                       child: Text(
@@ -304,6 +403,107 @@ class _VenueDetailPageState extends State<VenueDetailPage> {
                     ),
                     const SizedBox(height: 22),
                   ],
+                  Text(
+                    'Reseñas',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(22),
+                      color: theme.colorScheme.surface,
+                      border: Border.all(
+                        color:
+                            theme.colorScheme.outlineVariant.withOpacity(0.22),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.star,
+                          color: Colors.amber,
+                          size: 22,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          avgRating.toStringAsFixed(1),
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '($totalReviews reseña${totalReviews == 1 ? '' : 's'})',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  if (!hasUserReview)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _openReviewPage,
+                          icon: const Icon(Icons.rate_review_outlined),
+                          label: const Text('Valorar complejo'),
+                        ),
+                      ),
+                    ),
+                  if (hasUserReview)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          color: theme.colorScheme.surfaceContainerHighest,
+                        ),
+                        child: const Text(
+                          'Ya dejaste una reseña para este complejo.',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ),
+                  if (reviews.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(22),
+                        color: theme.colorScheme.surface,
+                        border: Border.all(
+                          color:
+                              theme.colorScheme.outlineVariant.withOpacity(0.22),
+                        ),
+                      ),
+                      child: const Text('Todavía no hay reseñas'),
+                    )
+                  else
+                    ...reviews.map(
+                      (review) => _FeaturedReviewCard(
+                        review: review,
+                        dateText: _dateText(review['created_at']),
+                        onLike: () => _likeReview(review['id'] as int),
+                      ),
+                    ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: _openAllReviewsPage,
+                      child: const Text('Ver todas las reseñas'),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
                   Text(
                     'Canchas disponibles',
                     style: theme.textTheme.titleLarge?.copyWith(
@@ -326,7 +526,8 @@ class _VenueDetailPageState extends State<VenueDetailPage> {
                         borderRadius: BorderRadius.circular(22),
                         color: theme.colorScheme.surface,
                         border: Border.all(
-                          color: theme.colorScheme.outlineVariant.withOpacity(0.22),
+                          color:
+                              theme.colorScheme.outlineVariant.withOpacity(0.22),
                         ),
                       ),
                       child: const Text('Todavía no hay canchas cargadas.'),
@@ -368,6 +569,137 @@ class _VenueDetailPageState extends State<VenueDetailPage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _FeaturedReviewCard extends StatelessWidget {
+  final Map<String, dynamic> review;
+  final String dateText;
+  final VoidCallback onLike;
+
+  const _FeaturedReviewCard({
+    required this.review,
+    required this.dateText,
+    required this.onLike,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final comment = (review['comment'] ?? '').toString().trim();
+    final rating = review['rating'] ?? 0;
+    final likesCount = review['likes_count'] ?? 0;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        color: theme.colorScheme.surface,
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withOpacity(0.22),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const CircleAvatar(
+                radius: 22,
+                child: Icon(Icons.person_outline),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Usuario',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      dateText,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _RatingBadge(rating: rating),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            comment.isEmpty ? 'Sin comentario' : comment,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: onLike,
+              icon: const Icon(
+                Icons.favorite_border,
+                size: 18,
+              ),
+              label: Text('$likesCount'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RatingBadge extends StatelessWidget {
+  final dynamic rating;
+
+  const _RatingBadge({
+    required this.rating,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.amber.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.star,
+            size: 16,
+            color: Colors.amber,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            '$rating',
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
       ),
     );
   }

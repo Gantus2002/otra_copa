@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../data/courts_remote_service.dart';
+import '../../data/venue_review_service.dart';
 import 'venue_detail_page.dart';
 
 class CourtsPage extends StatefulWidget {
@@ -17,10 +18,13 @@ class CourtsPage extends StatefulWidget {
 
 class CourtsPageState extends State<CourtsPage> {
   final CourtsRemoteService _service = CourtsRemoteService();
+  final VenueReviewService _reviewService = VenueReviewService();
   final TextEditingController _searchController = TextEditingController();
 
   List<Map<String, dynamic>> venues = [];
   List<Map<String, dynamic>> filteredVenues = [];
+
+  Map<int, Map<String, dynamic>> reviewStatsByVenue = {};
 
   bool isLoading = true;
 
@@ -73,9 +77,17 @@ class CourtsPageState extends State<CourtsPage> {
         city: widget.selectedCity,
       );
 
+      final venueIds = result
+          .map((venue) => venue['id'])
+          .whereType<int>()
+          .toList();
+
+      final stats = await _reviewService.getStatsForVenueIds(venueIds);
+
       _safeSetState(() {
         venues = result;
         filteredVenues = result;
+        reviewStatsByVenue = stats;
         isLoading = false;
       });
 
@@ -127,7 +139,7 @@ class CourtsPageState extends State<CourtsPage> {
     return 'Precio a confirmar';
   }
 
-  void _openVenue(Map<String, dynamic> venue) {
+  void _openVenue(Map<String, dynamic> venue) async {
     final venueId = venue['id'];
 
     if (venueId is! int) {
@@ -135,7 +147,7 @@ class CourtsPageState extends State<CourtsPage> {
       return;
     }
 
-    Navigator.push(
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => VenueDetailPage(
@@ -143,6 +155,8 @@ class CourtsPageState extends State<CourtsPage> {
         ),
       ),
     );
+
+    await _loadVenues();
   }
 
   @override
@@ -199,11 +213,22 @@ class CourtsPageState extends State<CourtsPage> {
                     )
                   else
                     ...filteredVenues.map(
-                      (venue) => _VenueCard(
-                        venue: venue,
-                        priceText: _priceText(venue),
-                        onTap: () => _openVenue(venue),
-                      ),
+                      (venue) {
+                        final venueId = venue['id'] is int ? venue['id'] as int : -1;
+                        final stats = reviewStatsByVenue[venueId] ??
+                            {
+                              'avg': 0.0,
+                              'count': 0,
+                            };
+
+                        return _VenueCard(
+                          venue: venue,
+                          priceText: _priceText(venue),
+                          onTap: () => _openVenue(venue),
+                          avgRating: (stats['avg'] as num).toDouble(),
+                          totalReviews: stats['count'] as int,
+                        );
+                      },
                     ),
                 ],
               ),
@@ -216,11 +241,15 @@ class _VenueCard extends StatelessWidget {
   final Map<String, dynamic> venue;
   final String priceText;
   final VoidCallback onTap;
+  final double avgRating;
+  final int totalReviews;
 
   const _VenueCard({
     required this.venue,
     required this.priceText,
     required this.onTap,
+    required this.avgRating,
+    required this.totalReviews,
   });
 
   @override
@@ -290,6 +319,30 @@ class _VenueCard extends StatelessWidget {
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.star,
+                        color: Colors.amber,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        avgRating.toStringAsFixed(1),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '($totalReviews)',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 12),
                   Wrap(
