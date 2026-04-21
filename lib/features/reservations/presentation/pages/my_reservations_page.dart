@@ -5,7 +5,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class MyReservationsPage extends StatefulWidget {
-  const MyReservationsPage({super.key});
+  final int initialTab;
+
+  const MyReservationsPage({
+    super.key,
+    this.initialTab = 0,
+  });
 
   @override
   State<MyReservationsPage> createState() => _MyReservationsPageState();
@@ -29,7 +34,11 @@ class _MyReservationsPageState extends State<MyReservationsPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(
+      length: 2,
+      vsync: this,
+      initialIndex: widget.initialTab,
+    );
 
     _loadReservations();
 

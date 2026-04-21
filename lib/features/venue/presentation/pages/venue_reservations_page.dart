@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../../core/widgets/app_bar_with_notifications.dart';
+import '../../../player/presentation/pages/player_public_profile_page.dart';
+
 class VenueReservationsPage extends StatefulWidget {
   final Map<String, dynamic> venue;
 
@@ -303,6 +306,20 @@ class _VenueReservationsPageState extends State<VenueReservationsPage> {
     }
   }
 
+  void _openPlayerProfile(Map<String, dynamic> reservation) {
+    final userId = (reservation['user_id'] ?? '').toString();
+    if (userId.isEmpty) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PlayerPublicProfilePage(
+          userId: userId,
+        ),
+      ),
+    );
+  }
+
   String _statusText(String status) {
     switch (status) {
       case 'confirmed':
@@ -493,9 +510,7 @@ class _VenueReservationsPageState extends State<VenueReservationsPage> {
     final filtered = _filteredReservations();
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Reservas - $venueName'),
-      ),
+      appBar: AppBarWithNotifications(title: 'Reservas - $venueName'),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : Column(
@@ -617,39 +632,68 @@ class _VenueReservationsPageState extends State<VenueReservationsPage> {
                                         ),
                                       ),
                                       const SizedBox(height: 12),
-                                      Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          _buildAvatar(profileData),
-                                          const SizedBox(width: 12),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  playerName,
-                                                  style: const TextStyle(
-                                                    fontWeight: FontWeight.w800,
-                                                  ),
-                                                ),
-                                                if (playerPhone.isNotEmpty) ...[
-                                                  const SizedBox(height: 2),
-                                                  Text(
-                                                    playerPhone,
-                                                    style: theme
-                                                        .textTheme.bodyMedium
-                                                        ?.copyWith(
-                                                      color: theme.colorScheme
-                                                          .onSurfaceVariant,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ],
-                                            ),
+                                      InkWell(
+                                        borderRadius: BorderRadius.circular(16),
+                                        onTap: () => _openPlayerProfile(reservation),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 4,
                                           ),
-                                        ],
+                                          child: Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              _buildAvatar(profileData),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      playerName,
+                                                      style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.w800,
+                                                      ),
+                                                    ),
+                                                    if (playerPhone.isNotEmpty) ...[
+                                                      const SizedBox(height: 2),
+                                                      Text(
+                                                        playerPhone,
+                                                        style: theme.textTheme
+                                                            .bodyMedium
+                                                            ?.copyWith(
+                                                          color: theme
+                                                              .colorScheme
+                                                              .onSurfaceVariant,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                    const SizedBox(height: 6),
+                                                    Text(
+                                                      'Ver perfil',
+                                                      style: theme
+                                                          .textTheme.bodySmall
+                                                          ?.copyWith(
+                                                        color: theme
+                                                            .colorScheme.primary,
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              Icon(
+                                                Icons.chevron_right,
+                                                size: 18,
+                                                color: theme.colorScheme
+                                                    .onSurfaceVariant,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
                                       ),
                                       const SizedBox(height: 12),
                                       Wrap(

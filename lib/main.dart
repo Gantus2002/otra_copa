@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app/app.dart';
 import 'core/config/supabase_config.dart';
+import 'core/services/notification_badge_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -46,8 +47,18 @@ class _OtraCopaRootState extends State<OtraCopaRoot> {
   @override
   void initState() {
     super.initState();
+
     _themeMode = widget.initialThemeMode;
     _selectedCity = widget.initialCity;
+
+    /// 🔔 ACTIVA EL BADGE GLOBAL
+    NotificationBadgeService().start();
+  }
+
+  @override
+  void dispose() {
+    NotificationBadgeService().disposeService();
+    super.dispose();
   }
 
   Future<void> _toggleDarkMode(bool isDark) async {

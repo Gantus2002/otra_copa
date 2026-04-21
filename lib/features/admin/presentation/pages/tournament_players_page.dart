@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../../core/widgets/app_bar_with_notifications.dart';
 import '../../data/team_service.dart';
+import '../../../player/presentation/pages/player_public_profile_page.dart';
 import 'player_review_page.dart';
 import 'tournament_fixture_page.dart';
 
@@ -121,6 +123,21 @@ class _TournamentPlayersPageState extends State<TournamentPlayersPage> {
     }
   }
 
+  void _openPlayerProfileByUserId(dynamic userId) {
+    final id = (userId ?? '').toString().trim();
+    if (id.isEmpty) {
+      _showSnackBar('Este jugador no tiene user_id');
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PlayerPublicProfilePage(userId: id),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _playersSubscription?.cancel();
@@ -131,26 +148,11 @@ class _TournamentPlayersPageState extends State<TournamentPlayersPage> {
   @override
   Widget build(BuildContext context) {
     final bool noPlayers = players.isEmpty;
+    final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Jugadores - ${widget.tournamentName}'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.calendar_month),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => TournamentFixturePage(
-                    tournamentId: widget.tournamentId,
-                    tournamentName: widget.tournamentName,
-                  ),
-                ),
-              );
-            },
-          ),
-        ],
+      appBar: AppBarWithNotifications(
+        title: 'Jugadores - ${widget.tournamentName}',
       ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -186,32 +188,56 @@ class _TournamentPlayersPageState extends State<TournamentPlayersPage> {
                   ...players.map(
                     (player) => Card(
                       child: ListTile(
+                        onTap: () {
+                          _openPlayerProfileByUserId(player['user_id']);
+                        },
                         leading: const Icon(Icons.person),
                         title: Text((player['player_name'] ?? '').toString()),
-                        subtitle: const Text('Jugador confirmado'),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.star_outline),
-                          onPressed: () {
-                            final userId = player['user_id'];
-
-                            if (userId == null) {
-                              _showSnackBar('Este jugador no tiene user_id');
-                              return;
-                            }
-
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => PlayerReviewPage(
-                                  tournamentId: widget.tournamentId,
-                                  reviewedUserId: userId,
-                                  playerName:
-                                      (player['player_name'] ?? 'Jugador')
-                                          .toString(),
-                                ),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Jugador confirmado'),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Ver perfil',
+                              style: TextStyle(
+                                color: theme.colorScheme.primary,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
                               ),
-                            );
-                          },
+                            ),
+                          ],
+                        ),
+                        trailing: Wrap(
+                          spacing: 4,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.star_outline),
+                              onPressed: () {
+                                final userId = player['user_id'];
+
+                                if (userId == null) {
+                                  _showSnackBar('Este jugador no tiene user_id');
+                                  return;
+                                }
+
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => PlayerReviewPage(
+                                      tournamentId: widget.tournamentId,
+                                      reviewedUserId: userId,
+                                      playerName:
+                                          (player['player_name'] ?? 'Jugador')
+                                              .toString(),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                            const Icon(Icons.chevron_right),
+                          ],
                         ),
                       ),
                     ),
@@ -245,12 +271,42 @@ class _TournamentPlayersPageState extends State<TournamentPlayersPage> {
                             ...List<Map<String, dynamic>>.from(
                               team['players'] ?? [],
                             ).map(
-                              (player) => Padding(
-                                padding: const EdgeInsets.only(bottom: 8),
-                                child: Text(
-                                  '• ${(player['player_name'] ?? '').toString()}',
-                                ),
-                              ),
+                              (player) {
+                                final playerName =
+                                    (player['player_name'] ?? '').toString();
+                                final userId = player['user_id'];
+
+                                return InkWell(
+                                  borderRadius: BorderRadius.circular(10),
+                                  onTap: () {
+                                    if (userId == null ||
+                                        userId.toString().trim().isEmpty) {
+                                      _showSnackBar(
+                                        'Este jugador no tiene user_id',
+                                      );
+                                      return;
+                                    }
+
+                                    _openPlayerProfileByUserId(userId);
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text('• $playerName'),
+                                        ),
+                                        Icon(
+                                          Icons.chevron_right,
+                                          size: 18,
+                                          color: theme.colorScheme
+                                              .onSurfaceVariant,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
                             ),
                           ],
                         ),
@@ -258,6 +314,22 @@ class _TournamentPlayersPageState extends State<TournamentPlayersPage> {
                     ),
                   ),
                 ],
+                const SizedBox(height: 20),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => TournamentFixturePage(
+                          tournamentId: widget.tournamentId,
+                          tournamentName: widget.tournamentName,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.calendar_month),
+                  label: const Text('Ver fixture'),
+                ),
               ],
             ),
     );

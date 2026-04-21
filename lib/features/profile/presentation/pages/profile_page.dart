@@ -2,14 +2,17 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../admin/presentation/pages/admin_dashboard_page.dart';
 import '../../../admin/presentation/pages/admin_reservations_page.dart';
 import '../../../auth/data/auth_service.dart';
+import '../../../../core/widgets/app_bar_with_notifications.dart';
 import '../../../player/data/player_review_service.dart';
 import '../../../player/data/player_stats_service.dart';
+import '../../../player/presentation/pages/player_search_page.dart';
 import '../../../venue/presentation/pages/venue_dashboard_page.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -42,6 +45,7 @@ class _ProfilePageState extends State<ProfilePage> {
   String email = '';
   String role = 'player';
   String? avatarUrl;
+  String publicCode = '';
 
   int totalGoals = 0;
   int totalMatches = 0;
@@ -69,6 +73,12 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  Future<void> _copyCode() async {
+    if (publicCode.trim().isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: publicCode));
+    _showSnackBar('Código copiado');
+  }
+
   Future<void> _loadProfile() async {
     final client = Supabase.instance.client;
     final user = client.auth.currentUser;
@@ -83,7 +93,7 @@ class _ProfilePageState extends State<ProfilePage> {
     try {
       final profile = await client
           .from('profiles')
-          .select('full_name, role, avatar_url')
+          .select('full_name, role, avatar_url, public_code')
           .eq('id', user.id)
           .maybeSingle();
 
@@ -121,6 +131,7 @@ class _ProfilePageState extends State<ProfilePage> {
         fullName = (profile?['full_name'] ?? 'Jugador').toString();
         role = (profile?['role'] ?? 'player').toString();
         avatarUrl = profile?['avatar_url']?.toString();
+        publicCode = (profile?['public_code'] ?? '').toString();
         email = user.email ?? '';
         stats = statsData;
         reviews = reviewsData;
@@ -232,8 +243,6 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   int _calculateOverall() {
-    // Fórmula más estable para empezar:
-    // 40% rendimiento, 35% participación, 25% reputación.
     final attackScore = math.min(99.0, totalGoals * 2.4 + totalMvp * 4.5);
     final activityScore = math.min(99.0, totalMatches * 1.8 + stats.length * 3);
     final reviewScore = reviews.isEmpty
@@ -257,9 +266,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final overall = _calculateOverall();
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mi perfil'),
-      ),
+      appBar: const AppBarWithNotifications(title: 'Mi perfil'),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : SafeArea(
@@ -277,6 +284,8 @@ class _ProfilePageState extends State<ProfilePage> {
                     totalMvp: totalMvp,
                     isUploadingAvatar: isUploadingAvatar,
                     onAvatarTap: isUploadingAvatar ? null : _pickAndUploadAvatar,
+                    publicCode: publicCode,
+                    onCopyCode: _copyCode,
                   ),
                   const SizedBox(height: 18),
                   _GlassCard(
@@ -318,26 +327,70 @@ class _ProfilePageState extends State<ProfilePage> {
                                       ),
                                     ),
                                     const SizedBox(height: 10),
-                                    Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                          vertical: 8,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: theme.colorScheme.secondaryContainer,
-                                          borderRadius: BorderRadius.circular(999),
-                                        ),
-                                        child: Text(
-                                          _roleLabel(),
-                                          style: TextStyle(
-                                            color: theme.colorScheme.onSecondaryContainer,
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 12,
+                                    Wrap(
+                                      spacing: 10,
+                                      runSpacing: 10,
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 8,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: theme.colorScheme.secondaryContainer,
+                                            borderRadius: BorderRadius.circular(999),
+                                          ),
+                                          child: Text(
+                                            _roleLabel(),
+                                            style: TextStyle(
+                                              color: theme.colorScheme.onSecondaryContainer,
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 12,
+                                            ),
                                           ),
                                         ),
-                                      ),
+                                        InkWell(
+                                          borderRadius: BorderRadius.circular(14),
+                                          onTap: () {
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (_) =>
+                                                    const PlayerSearchPage(),
+                                              ),
+                                            );
+                                          },
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 10,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Colors.blueAccent,
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                            ),
+                                            child: const Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.search,
+                                                  color: Colors.white,
+                                                  size: 18,
+                                                ),
+                                                SizedBox(width: 6),
+                                                Text(
+                                                  'Buscar jugadores',
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ],
                                 ),
@@ -673,6 +726,8 @@ class _FifaStyleProfileCard extends StatelessWidget {
   final int totalMvp;
   final bool isUploadingAvatar;
   final VoidCallback? onAvatarTap;
+  final String publicCode;
+  final Future<void> Function() onCopyCode;
 
   const _FifaStyleProfileCard({
     required this.fullName,
@@ -685,6 +740,8 @@ class _FifaStyleProfileCard extends StatelessWidget {
     required this.totalMvp,
     required this.isUploadingAvatar,
     required this.onAvatarTap,
+    required this.publicCode,
+    required this.onCopyCode,
   });
 
   @override
@@ -713,10 +770,8 @@ class _FifaStyleProfileCard extends StatelessWidget {
       ),
       child: Column(
         children: [
-          /// TOP ROW
           Row(
             children: [
-              /// GRL
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
@@ -749,10 +804,7 @@ class _FifaStyleProfileCard extends StatelessWidget {
                   ],
                 ),
               ),
-
               const Spacer(),
-
-              /// BANDERA
               Container(
                 width: 44,
                 height: 44,
@@ -768,10 +820,7 @@ class _FifaStyleProfileCard extends StatelessWidget {
               ),
             ],
           ),
-
           const SizedBox(height: 18),
-
-          /// FOTO
           GestureDetector(
             onTap: onAvatarTap,
             child: Stack(
@@ -788,6 +837,18 @@ class _FifaStyleProfileCard extends StatelessWidget {
                         ? Image.network(
                             avatarUrl!,
                             fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Center(
+                              child: Text(
+                                fullName.isNotEmpty
+                                    ? fullName[0].toUpperCase()
+                                    : 'J',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 34,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
                           )
                         : Center(
                             child: Text(
@@ -803,8 +864,6 @@ class _FifaStyleProfileCard extends StatelessWidget {
                           ),
                   ),
                 ),
-
-                /// BOTON EDIT
                 Positioned(
                   bottom: 0,
                   right: 0,
@@ -830,10 +889,7 @@ class _FifaStyleProfileCard extends StatelessWidget {
               ],
             ),
           ),
-
           const SizedBox(height: 14),
-
-          /// NOMBRE
           Text(
             fullName,
             textAlign: TextAlign.center,
@@ -843,10 +899,7 @@ class _FifaStyleProfileCard extends StatelessWidget {
               fontSize: 18,
             ),
           ),
-
           const SizedBox(height: 4),
-
-          /// ROL
           Text(
             roleLabel,
             style: const TextStyle(
@@ -854,10 +907,67 @@ class _FifaStyleProfileCard extends StatelessWidget {
               fontSize: 13,
             ),
           ),
-
+          if (publicCode.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.10),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    publicCode,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                InkWell(
+                  borderRadius: BorderRadius.circular(999),
+                  onTap: onCopyCode,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.copy,
+                          size: 16,
+                          color: Colors.white,
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          'Copiar código',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 16),
-
-          /// STATS
           Container(
             padding: const EdgeInsets.symmetric(vertical: 10),
             decoration: BoxDecoration(
@@ -875,20 +985,6 @@ class _FifaStyleProfileCard extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-
-class _CardStatDivider extends StatelessWidget {
-  const _CardStatDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 1,
-      height: 28,
-      color: Colors.white12,
     );
   }
 }
@@ -1163,6 +1259,7 @@ class _EmptyCard extends StatelessWidget {
     );
   }
 }
+
 class _CardStat extends StatelessWidget {
   final String label;
   final String value;
