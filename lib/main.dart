@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -5,9 +6,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app/app.dart';
 import 'core/config/supabase_config.dart';
 import 'core/services/notification_badge_service.dart';
+import 'core/services/push_notification_service.dart';
+import 'firebase_options.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
 
   await Supabase.initialize(
     url: SupabaseConfig.supabaseUrl,
@@ -17,6 +24,8 @@ Future<void> main() async {
   final prefs = await SharedPreferences.getInstance();
   final isDarkMode = prefs.getBool('is_dark_mode') ?? false;
   final selectedCity = prefs.getString('selected_city') ?? 'Asunción';
+
+  await PushNotificationService.instance.init();
 
   runApp(
     OtraCopaRoot(
@@ -51,7 +60,6 @@ class _OtraCopaRootState extends State<OtraCopaRoot> {
     _themeMode = widget.initialThemeMode;
     _selectedCity = widget.initialCity;
 
-    /// 🔔 ACTIVA EL BADGE GLOBAL
     NotificationBadgeService().start();
   }
 

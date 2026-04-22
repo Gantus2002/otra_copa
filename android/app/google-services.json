@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "983571048128",
+    "project_id": "otra-copa-py-2026",
+    "storage_bucket": "otra-copa-py-2026.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:983571048128:android:ccd7e5497a4ffc32cbaf25",
+        "android_client_info": {
+          "package_name": "com.example.otra_copa"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAke8Z6D7Yd3kG9kbnnXeYXbwjksp8GRXM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
