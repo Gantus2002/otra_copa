@@ -13,6 +13,7 @@ import '../../../../core/widgets/app_bar_with_notifications.dart';
 import '../../../player/data/player_review_service.dart';
 import '../../../player/data/player_stats_service.dart';
 import '../../../player/presentation/pages/player_search_page.dart';
+import '../../../teams/presentation/pages/my_teams_page.dart';
 import '../../../venue/presentation/pages/venue_dashboard_page.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -390,6 +391,47 @@ class _ProfilePageState extends State<ProfilePage> {
                                             ),
                                           ),
                                         ),
+                                        InkWell(
+                                          borderRadius: BorderRadius.circular(14),
+                                          onTap: () {
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (_) =>
+                                                    const MyTeamsPage(),
+                                              ),
+                                            );
+                                          },
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 10,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Colors.teal,
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                            ),
+                                            child: const Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.groups_2_outlined,
+                                                  color: Colors.white,
+                                                  size: 18,
+                                                ),
+                                                SizedBox(width: 6),
+                                                Text(
+                                                  'Mis equipos',
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
                                       ],
                                     ),
                                   ],
@@ -655,6 +697,21 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
                     ),
                   const SizedBox(height: 22),
+                  _ActionTile(
+                    icon: Icons.groups_2_outlined,
+                    title: 'Mis equipos',
+                    subtitle:
+                        'Creá tu equipo, invitá jugadores y administrá tus miembros',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const MyTeamsPage(),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 12),
                   if (role == 'super_admin' || role == 'admin') ...[
                     _ActionTile(
                       icon: Icons.admin_panel_settings_outlined,

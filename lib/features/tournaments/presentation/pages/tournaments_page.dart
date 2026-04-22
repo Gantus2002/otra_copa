@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+
 import '../../data/tournament_remote_service.dart';
+import '../../../invite/presentation/pages/join_by_code_page.dart';
 
 class TournamentsPage extends StatefulWidget {
   final String selectedCity;
@@ -60,7 +62,8 @@ class _TournamentsPageState extends State<TournamentsPage> {
       final mode = (tournament['game_mode'] ?? '').toString();
       final category = (tournament['category'] ?? '').toString();
 
-      final matchesSearch = name.contains(query);
+      final matchesSearch =
+          name.contains(query) || location.toLowerCase().contains(query);
 
       final matchesLocation = widget.selectedCity.isEmpty ||
           location.toLowerCase().contains(widget.selectedCity.toLowerCase());
@@ -82,6 +85,14 @@ class _TournamentsPageState extends State<TournamentsPage> {
     return tournament['is_official'] == true ? 'Oficial' : 'No oficial';
   }
 
+  String _moneyText(dynamic value) {
+    if (value == null) return 'A confirmar';
+    if (value is num) return 'Gs. ${value.toStringAsFixed(0)}';
+    final parsed = double.tryParse(value.toString());
+    if (parsed == null) return 'A confirmar';
+    return 'Gs. ${parsed.toStringAsFixed(0)}';
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -91,10 +102,23 @@ class _TournamentsPageState extends State<TournamentsPage> {
   @override
   Widget build(BuildContext context) {
     final results = filteredTournaments;
+    final theme = Theme.of(context);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Buscar torneo'),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const JoinByCodePage(),
+            ),
+          );
+        },
+        icon: const Icon(Icons.qr_code_2),
+        label: const Text('Unirme por código'),
       ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -102,24 +126,69 @@ class _TournamentsPageState extends State<TournamentsPage> {
               child: RefreshIndicator(
                 onRefresh: _loadTournaments,
                 child: ListView(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
                   children: [
-                    Text(
-                      'Ciudad actual: ${widget.selectedCity}',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _searchController,
-                      decoration: const InputDecoration(
-                        hintText: 'Buscar torneo',
-                        prefixIcon: Icon(Icons.search),
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(24),
+                        gradient: LinearGradient(
+                          colors: [
+                            theme.colorScheme.primary.withOpacity(0.14),
+                            theme.colorScheme.primaryContainer.withOpacity(0.28),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        border: Border.all(
+                          color: theme.colorScheme.outlineVariant.withOpacity(0.22),
+                        ),
                       ),
-                      onChanged: (_) {
-                        setState(() {});
-                      },
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Explorá torneos',
+                            style: theme.textTheme.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Ciudad actual: ${widget.selectedCity}',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          TextField(
+                            controller: _searchController,
+                            decoration: InputDecoration(
+                              hintText: 'Buscar torneo o ubicación',
+                              prefixIcon: const Icon(Icons.search),
+                              filled: true,
+                              fillColor: theme.colorScheme.surface,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(18),
+                                borderSide: BorderSide.none,
+                              ),
+                            ),
+                            onChanged: (_) {
+                              setState(() {});
+                            },
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 18),
+                    Text(
+                      'Filtros',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       initialValue: selectedType,
                       decoration: const InputDecoration(
@@ -197,41 +266,132 @@ class _TournamentsPageState extends State<TournamentsPage> {
                     const SizedBox(height: 24),
                     Text(
                       'Resultados',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     if (results.isEmpty)
-                      const Card(
-                        child: Padding(
-                          padding: EdgeInsets.all(16),
-                          child: Text(
-                            'No encontramos torneos con esos filtros.',
+                      Container(
+                        padding: const EdgeInsets.all(18),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(22),
+                          color: theme.colorScheme.surface,
+                          border: Border.all(
+                            color: theme.colorScheme.outlineVariant.withOpacity(0.22),
                           ),
+                        ),
+                        child: const Text(
+                          'No encontramos torneos con esos filtros.',
                         ),
                       )
                     else
                       ...results.map(
-                        (tournament) => Card(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          child: ListTile(
-                            leading: Icon(
-                              tournament['is_official'] == true
-                                  ? Icons.verified
-                                  : Icons.emoji_events_outlined,
+                        (tournament) => Container(
+                          margin: const EdgeInsets.only(bottom: 14),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(24),
+                            color: theme.colorScheme.surface,
+                            border: Border.all(
+                              color:
+                                  theme.colorScheme.outlineVariant.withOpacity(0.22),
                             ),
-                            title: Text(
-                              tournament['name']?.toString() ?? 'Torneo',
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.04),
+                                blurRadius: 14,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 44,
+                                      height: 44,
+                                      decoration: BoxDecoration(
+                                        color: tournament['is_official'] == true
+                                            ? Colors.green.withOpacity(0.14)
+                                            : theme.colorScheme.primaryContainer,
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                      child: Icon(
+                                        tournament['is_official'] == true
+                                            ? Icons.verified
+                                            : Icons.emoji_events_outlined,
+                                        color: tournament['is_official'] == true
+                                            ? Colors.green
+                                            : theme.colorScheme.onPrimaryContainer,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        tournament['name']?.toString() ?? 'Torneo',
+                                        style: theme.textTheme.titleMedium?.copyWith(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    _TournamentChip(
+                                      label: (tournament['location'] ?? '')
+                                          .toString(),
+                                    ),
+                                    _TournamentChip(
+                                      label: (tournament['tournament_type'] ?? '')
+                                          .toString(),
+                                    ),
+                                    _TournamentChip(
+                                      label: (tournament['game_mode'] ?? '')
+                                          .toString(),
+                                    ),
+                                    _TournamentChip(
+                                      label: (tournament['category'] ?? '')
+                                          .toString(),
+                                    ),
+                                    _TournamentChip(
+                                      label: _officialLabel(tournament),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 14),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _PriceMiniCard(
+                                        title: 'Individual',
+                                        value: _moneyText(
+                                          tournament['entry_fee'] ??
+                                              tournament['entry_fee_individual'],
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: _PriceMiniCard(
+                                        title: 'Equipo',
+                                        value: _moneyText(
+                                          tournament['team_entry_fee'] ??
+                                              tournament['entry_fee_team'],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
-                            subtitle: Text(
-                              '${tournament['location'] ?? ''}\n'
-                              '${tournament['tournament_type'] ?? ''} • '
-                              '${tournament['game_mode'] ?? ''} • '
-                              '${tournament['category'] ?? ''}\n'
-                              '${_officialLabel(tournament)}',
-                            ),
-                            isThreeLine: true,
                           ),
                         ),
                       ),
@@ -239,6 +399,77 @@ class _TournamentsPageState extends State<TournamentsPage> {
                 ),
               ),
             ),
+    );
+  }
+}
+
+class _TournamentChip extends StatelessWidget {
+  final String label;
+
+  const _TournamentChip({
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (label.trim().isEmpty) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+}
+
+class _PriceMiniCard extends StatelessWidget {
+  final String title;
+  final String value;
+
+  const _PriceMiniCard({
+    required this.title,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withOpacity(0.35),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

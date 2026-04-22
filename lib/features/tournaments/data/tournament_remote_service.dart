@@ -9,6 +9,17 @@ class TournamentRemoteService {
     required String gameMode,
     required String category,
     required bool isOfficial,
+    required String startDate,
+    required int teamsCount,
+    required String prizes,
+    required String joinMode,
+    required bool hasReferees,
+    required bool hasOffside,
+    required bool hasCardSanctions,
+    required String duration,
+    required String tieBreaker,
+    double? entryFeeIndividual,
+    double? entryFeeTeam,
     String? inviteCode,
   }) async {
     final user = Supabase.instance.client.auth.currentUser;
@@ -26,6 +37,17 @@ class TournamentRemoteService {
       'invite_code': inviteCode,
       'owner_id': user.id,
       'is_official': isOfficial,
+      'start_date': startDate,
+      'teams_count': teamsCount,
+      'entry_fee_individual': entryFeeIndividual,
+      'entry_fee_team': entryFeeTeam,
+      'prizes': prizes,
+      'join_mode': joinMode,
+      'has_referees': hasReferees,
+      'has_offside': hasOffside,
+      'has_card_sanctions': hasCardSanctions,
+      'duration': duration,
+      'tie_breaker': tieBreaker,
     });
   }
 

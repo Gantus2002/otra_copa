@@ -11,6 +11,7 @@ import '../../../my_tournaments/presentation/pages/my_tournaments_page.dart';
 import '../../../tournament_detail/presentation/pages/tournament_detail_page.dart';
 import '../../../tournaments/presentation/pages/tournaments_page.dart';
 import '../../data/home_content_service.dart';
+import '../../data/upcoming_service.dart';
 
 class HomePage extends StatefulWidget {
   final String selectedCity;
@@ -28,14 +29,17 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final HomeContentService _service = HomeContentService();
+  final UpcomingService _upcomingService = UpcomingService();
 
   final PageController _bannerController =
       PageController(viewportFraction: 0.92);
 
   List<Map<String, dynamic>> banners = [];
   Map<String, dynamic>? ad;
+  List<Map<String, dynamic>> upcomingTournaments = [];
 
   bool loading = true;
+  bool loadingUpcoming = true;
   int currentBanner = 0;
 
   Timer? _bannerTimer;
@@ -43,7 +47,8 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _load();
+    _loadHomeContent();
+    _loadUpcoming();
   }
 
   @override
@@ -66,7 +71,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Future<void> _load() async {
+  Future<void> _loadHomeContent() async {
     try {
       final b = await _service.getActiveBanners();
       final a = await _service.getActiveAd();
@@ -89,6 +94,35 @@ class _HomePageState extends State<HomePage> {
 
       _showSnackBar('Error cargando contenido del inicio');
     }
+  }
+
+  Future<void> _loadUpcoming() async {
+    _safeSetState(() {
+      loadingUpcoming = true;
+    });
+
+    try {
+      final upcoming = await _upcomingService
+          .getUpcomingTournaments()
+          .timeout(const Duration(seconds: 8));
+
+      _safeSetState(() {
+        upcomingTournaments = upcoming;
+        loadingUpcoming = false;
+      });
+    } catch (_) {
+      _safeSetState(() {
+        upcomingTournaments = [];
+        loadingUpcoming = false;
+      });
+    }
+  }
+
+  Future<void> _refreshAll() async {
+    await Future.wait([
+      _loadHomeContent(),
+      _loadUpcoming(),
+    ]);
   }
 
   void _startBannerAutoScroll() {
@@ -329,6 +363,125 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  DateTime? _parseDate(dynamic raw) {
+    if (raw == null) return null;
+
+    final text = raw.toString().trim();
+    if (text.isEmpty) return null;
+
+    final iso = DateTime.tryParse(text);
+    if (iso != null) return iso;
+
+    final parts = text.split('/');
+    if (parts.length == 3) {
+      final day = int.tryParse(parts[0]);
+      final month = int.tryParse(parts[1]);
+      final year = int.tryParse(parts[2]);
+
+      if (day != null && month != null && year != null) {
+        return DateTime(year, month, day);
+      }
+    }
+
+    return null;
+  }
+
+  String _countdownText(DateTime? date) {
+    if (date == null) return 'Fecha a confirmar';
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(date.year, date.month, date.day);
+    final diff = target.difference(today).inDays;
+
+    if (diff < 0) return 'Ya pasó';
+    if (diff == 0) return 'Hoy';
+    if (diff == 1) return 'Mañana';
+    return 'En $diff días';
+  }
+
+  String _formatDate(dynamic raw) {
+    final date = _parseDate(raw);
+    if (date == null) return 'Fecha a confirmar';
+
+    return '${date.day.toString().padLeft(2, '0')}/'
+        '${date.month.toString().padLeft(2, '0')}/'
+        '${date.year}';
+  }
+
+  Widget _upcomingSection(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          context,
+          'Tus próximos torneos',
+          subtitle: 'Recordatorios visibles de lo que se viene',
+        ),
+        const SizedBox(height: 14),
+        if (loadingUpcoming)
+          const Center(child: CircularProgressIndicator())
+        else if (upcomingTournaments.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              color: theme.colorScheme.surface,
+              border: Border.all(
+                color: theme.colorScheme.outlineVariant.withOpacity(0.22),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(
+                    Icons.event_busy_outlined,
+                    color: theme.colorScheme.onPrimaryContainer,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Todavía no tenés torneos próximos o solicitudes activas.',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          ...upcomingTournaments.map(
+            (tournament) => _UpcomingTournamentCard(
+              tournament: tournament,
+              countdownText: _countdownText(_parseDate(tournament['start_date'])),
+              formattedDate: _formatDate(tournament['start_date']),
+              onTap: () {
+                final tournamentId = tournament['id'];
+                if (tournamentId is! int) return;
+
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => TournamentDetailPage(
+                      tournamentId: tournamentId,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -340,7 +493,7 @@ class _HomePageState extends State<HomePage> {
             )
           : SafeArea(
               child: RefreshIndicator(
-                onRefresh: _load,
+                onRefresh: _refreshAll,
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(
                     16,
@@ -400,6 +553,9 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ),
                     const SizedBox(height: 24),
+
+                    _upcomingSection(context),
+                    const SizedBox(height: 28),
 
                     if (banners.isNotEmpty) ...[
                       _sectionTitle(
@@ -781,6 +937,282 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             ),
+    );
+  }
+}
+
+class _UpcomingTournamentCard extends StatelessWidget {
+  final Map<String, dynamic> tournament;
+  final String countdownText;
+  final String formattedDate;
+  final VoidCallback onTap;
+
+  const _UpcomingTournamentCard({
+    required this.tournament,
+    required this.countdownText,
+    required this.formattedDate,
+    required this.onTap,
+  });
+
+  String _requestTypeLabel(String value) {
+    switch (value) {
+      case 'team':
+        return 'Vas con equipo';
+      case 'player':
+      default:
+        return 'Vas como jugador';
+    }
+  }
+
+  String _statusLabel(String value) {
+    switch (value) {
+      case 'approved':
+        return 'Aprobado';
+      case 'accepted':
+        return 'Confirmado';
+      case 'confirmed':
+        return 'Confirmado';
+      case 'pending':
+      default:
+        return 'Pendiente';
+    }
+  }
+
+  Color _statusColor(String value) {
+    switch (value) {
+      case 'approved':
+        return Colors.blue;
+      case 'accepted':
+      case 'confirmed':
+        return Colors.green;
+      case 'pending':
+      default:
+        return Colors.orange;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final name = (tournament['name'] ?? 'Torneo').toString();
+    final location = (tournament['location'] ?? '').toString();
+    final gameMode = (tournament['game_mode'] ?? '').toString();
+    final category = (tournament['category'] ?? '').toString();
+    final requestStatus = (tournament['request_status'] ?? '').toString();
+    final requestType = (tournament['request_type'] ?? '').toString();
+    final teamName = (tournament['team_name_snapshot'] ?? '').toString();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(26),
+        color: theme.colorScheme.surface,
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withOpacity(0.22),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(26),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 165,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    theme.colorScheme.primary,
+                    theme.colorScheme.primaryContainer,
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: Stack(
+                children: [
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    top: 16,
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.18),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            countdownText,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _statusColor(requestStatus).withOpacity(0.22),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            _statusLabel(requestStatus),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    bottom: 16,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            height: 1.1,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          location,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      if (gameMode.isNotEmpty)
+                        _MiniTournamentChip(label: gameMode),
+                      if (category.isNotEmpty)
+                        _MiniTournamentChip(label: category),
+                      _MiniTournamentChip(label: formattedDate),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _requestTypeLabel(requestType),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        if (requestType == 'team' && teamName.trim().isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Equipo: $teamName',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 4),
+                        Text(
+                          'Estado: ${_statusLabel(requestStatus)}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: onTap,
+                      icon: const Icon(Icons.visibility_outlined),
+                      label: const Text('Ver torneo'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniTournamentChip extends StatelessWidget {
+  final String label;
+
+  const _MiniTournamentChip({
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
+        ),
+      ),
     );
   }
 }
