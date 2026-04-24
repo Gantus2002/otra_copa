@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../invite/data/join_request_service.dart';
+import '../../../ranking/presentation/pages/mvp_leaderboard_page.dart';
+import '../../../ranking/presentation/pages/ranking_page.dart';
+import '../../../ranking/presentation/pages/top_scorers_page.dart';
 import '../../../teams/data/team_service.dart';
 
 class TournamentDetailPage extends StatefulWidget {
@@ -70,9 +73,7 @@ class _TournamentDetailPageState extends State<TournamentDetailPage> {
       return;
     }
 
-    _safeSetState(() {
-      joiningTeam = true;
-    });
+    _safeSetState(() => joiningTeam = true);
 
     try {
       final teams = await _teamService.getMyTeams();
@@ -99,35 +100,33 @@ class _TournamentDetailPageState extends State<TournamentDetailPage> {
                       ),
                 ),
                 const SizedBox(height: 12),
-                ...teams.map(
-                  (team) {
-                    final name = (team['name'] ?? 'Equipo').toString();
-                    final city = (team['city'] ?? '').toString();
-                    final country = (team['country'] ?? '').toString();
-                    final code = (team['code'] ?? '').toString();
-                    final logoUrl = team['logo_url']?.toString();
+                ...teams.map((team) {
+                  final name = (team['name'] ?? 'Equipo').toString();
+                  final city = (team['city'] ?? '').toString();
+                  final country = (team['country'] ?? '').toString();
+                  final code = (team['code'] ?? '').toString();
+                  final logoUrl = team['logo_url']?.toString();
 
-                    return Card(
-                      child: ListTile(
-                        leading: _TeamLogo(logoUrl: logoUrl),
-                        title: Text(
-                          name,
-                          style: const TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                        subtitle: Text(
-                          [
-                            [city, country]
-                                .where((e) => e.trim().isNotEmpty)
-                                .join(', '),
-                            code,
-                          ].where((e) => e.trim().isNotEmpty).join(' • '),
-                        ),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => Navigator.pop(context, team),
+                  return Card(
+                    child: ListTile(
+                      leading: _TeamLogo(logoUrl: logoUrl),
+                      title: Text(
+                        name,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
-                    );
-                  },
-                ),
+                      subtitle: Text(
+                        [
+                          [city, country]
+                              .where((e) => e.trim().isNotEmpty)
+                              .join(', '),
+                          code,
+                        ].where((e) => e.trim().isNotEmpty).join(' • '),
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.pop(context, team),
+                    ),
+                  );
+                }),
               ],
             ),
           );
@@ -146,9 +145,7 @@ class _TournamentDetailPageState extends State<TournamentDetailPage> {
     } catch (e) {
       _showSnackBar(e.toString().replaceFirst('Exception: ', ''));
     } finally {
-      _safeSetState(() {
-        joiningTeam = false;
-      });
+      _safeSetState(() => joiningTeam = false);
     }
   }
 
@@ -174,9 +171,7 @@ class _TournamentDetailPageState extends State<TournamentDetailPage> {
     return fallback;
   }
 
-  bool _boolValue(String key) {
-    return tournament?[key] == true;
-  }
+  bool _boolValue(String key) => tournament?[key] == true;
 
   bool _hasValue(String key) {
     final value = tournament?[key];
@@ -199,24 +194,58 @@ class _TournamentDetailPageState extends State<TournamentDetailPage> {
     return 'Gs. ${parsed.toStringAsFixed(0)}';
   }
 
+  void _openRanking({
+    required String tournamentName,
+    required String location,
+  }) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RankingPage(
+          tournamentId: widget.tournamentId,
+          tournamentName: tournamentName,
+          city: location,
+        ),
+      ),
+    );
+  }
+
+  void _openTopScorers() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TopScorersPage(
+          tournamentId: widget.tournamentId,
+        ),
+      ),
+    );
+  }
+
+  void _openMvpLeaderboard() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MvpLeaderboardPage(
+          tournamentId: widget.tournamentId,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     if (loading) {
       return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
+        body: Center(child: CircularProgressIndicator()),
       );
     }
 
     if (tournament == null) {
       return Scaffold(
         appBar: AppBar(),
-        body: const Center(
-          child: Text('Torneo no encontrado'),
-        ),
+        body: const Center(child: Text('Torneo no encontrado')),
       );
     }
 
@@ -520,6 +549,45 @@ class _TournamentDetailPageState extends State<TournamentDetailPage> {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
+                    onPressed: () => _openRanking(
+                      tournamentName: name,
+                      location: location,
+                    ),
+                    icon: const Icon(Icons.leaderboard_outlined),
+                    label: const Text('Ver ranking'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _openTopScorers,
+                    icon: const Icon(Icons.sports_soccer),
+                    label: const Text('Goleadores'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _openMvpLeaderboard,
+                    icon: const Icon(Icons.star),
+                    label: const Text('MVP leaderboard'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
                     onPressed: () {
                       _showSnackBar('La función compartir la conectamos después');
                     },
@@ -645,9 +713,7 @@ class _RuleRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Expanded(
-          child: Text(label),
-        ),
+        Expanded(child: Text(label)),
         Text(
           value,
           style: const TextStyle(fontWeight: FontWeight.w600),

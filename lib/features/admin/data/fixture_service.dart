@@ -11,7 +11,7 @@ class FixtureService {
   Future<void> generateFixture(int tournamentId) async {
     final tournamentTeamsResponse = await SupabaseService.client
         .from('tournament_teams')
-        .select()
+        .select('id, team_id, name')
         .eq('tournament_id', tournamentId)
         .order('id');
 
@@ -30,11 +30,8 @@ class FixtureService {
       for (int j = i + 1; j < tournamentTeams.length; j++) {
         await SupabaseService.client.from('matches').insert({
           'tournament_id': tournamentId,
-
-          // Guardamos el ID de tournament_teams
           'home_team_id': tournamentTeams[i]['id'],
           'away_team_id': tournamentTeams[j]['id'],
-
           'round_number': round,
           'status': 'scheduled',
           'home_score': 0,
@@ -59,26 +56,11 @@ class FixtureService {
 
     final tournamentTeamsResponse = await SupabaseService.client
         .from('tournament_teams')
-        .select()
+        .select('*, teams(id, name, logo_url, code)')
         .eq('tournament_id', tournamentId);
 
     final tournamentTeams =
         List<Map<String, dynamic>>.from(tournamentTeamsResponse);
-
-    final persistentTeamIds = tournamentTeams
-        .map((team) => team['team_id'])
-        .whereType<int>()
-        .toSet()
-        .toList();
-
-    final persistentTeams = persistentTeamIds.isEmpty
-        ? <Map<String, dynamic>>[]
-        : List<Map<String, dynamic>>.from(
-            await SupabaseService.client
-                .from('teams')
-                .select('id, name, logo_url, code')
-                .inFilter('id', persistentTeamIds),
-          );
 
     Map<String, dynamic> getTournamentTeamById(dynamic id) {
       return tournamentTeams.firstWhere(
@@ -87,41 +69,32 @@ class FixtureService {
       );
     }
 
-    Map<String, dynamic> getPersistentTeamById(dynamic id) {
-      return persistentTeams.firstWhere(
-        (team) => team['id'] == id,
-        orElse: () => <String, dynamic>{},
-      );
-    }
-
     String getTeamName(Map<String, dynamic> tournamentTeam) {
-      final teamId = tournamentTeam['team_id'];
+      final realTeam = tournamentTeam['teams'];
 
-      if (teamId != null) {
-        final realTeam = getPersistentTeamById(teamId);
-        final realName = realTeam['name']?.toString();
-
-        if (realName != null && realName.trim().isNotEmpty) {
-          return realName;
-        }
+      if (realTeam is Map && realTeam['name'] != null) {
+        final name = realTeam['name'].toString().trim();
+        if (name.isNotEmpty) return name;
       }
 
-      final fallbackName = tournamentTeam['name']?.toString();
+      final fallback = tournamentTeam['name']?.toString().trim();
 
-      if (fallbackName != null && fallbackName.trim().isNotEmpty) {
-        return fallbackName;
+      if (fallback != null && fallback.isNotEmpty) {
+        return fallback;
       }
 
       return 'Equipo';
     }
 
     String? getTeamLogo(Map<String, dynamic> tournamentTeam) {
-      final teamId = tournamentTeam['team_id'];
+      final realTeam = tournamentTeam['teams'];
 
-      if (teamId == null) return null;
+      if (realTeam is Map && realTeam['logo_url'] != null) {
+        final url = realTeam['logo_url'].toString().trim();
+        if (url.isNotEmpty) return url;
+      }
 
-      final realTeam = getPersistentTeamById(teamId);
-      return realTeam['logo_url']?.toString();
+      return null;
     }
 
     for (final match in matches) {
