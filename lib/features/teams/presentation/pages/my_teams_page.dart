@@ -37,9 +37,7 @@ class _MyTeamsPageState extends State<MyTeamsPage> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        isLoading = false;
-      });
+      setState(() => isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error cargando equipos: $e')),
       );
@@ -66,15 +64,65 @@ class _MyTeamsPageState extends State<MyTeamsPage> {
     }
   }
 
+  Future<void> _editTeam(Map<String, dynamic> team) async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CreateTeamPage(team: team),
+      ),
+    );
+
+    if (changed == true) {
+      await _load();
+    }
+  }
+
+  Future<void> _deleteTeam(Map<String, dynamic> team) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Borrar equipo'),
+        content: Text(
+          '¿Seguro que querés borrar ${(team['name'] ?? 'este equipo').toString()}?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Borrar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await _service.deleteTeam(team['id'] as int);
+      await _load();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Equipo borrado')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error borrando equipo: $e')),
+      );
+    }
+  }
+
   Future<void> _respondInvitation({
     required int invitationId,
-    required int teamId,
     required bool accept,
   }) async {
     try {
       await _service.respondToInvitation(
         invitationId: invitationId,
-        teamId: teamId,
         accept: accept,
       );
 
@@ -83,9 +131,7 @@ class _MyTeamsPageState extends State<MyTeamsPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            accept ? 'Invitación aceptada' : 'Invitación rechazada',
-          ),
+          content: Text(accept ? 'Invitación aceptada' : 'Invitación rechazada'),
         ),
       );
     } catch (e) {
@@ -105,6 +151,28 @@ class _MyTeamsPageState extends State<MyTeamsPage> {
       default:
         return 'Miembro';
     }
+  }
+
+  Widget _teamLogo(Map<String, dynamic> team) {
+    final logoUrl = team['logo_url']?.toString();
+
+    if (logoUrl != null && logoUrl.trim().isNotEmpty) {
+      return ClipOval(
+        child: Image.network(
+          logoUrl,
+          width: 48,
+          height: 48,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => const CircleAvatar(
+            child: Icon(Icons.shield_outlined),
+          ),
+        ),
+      );
+    }
+
+    return const CircleAvatar(
+      child: Icon(Icons.shield_outlined),
+    );
   }
 
   @override
@@ -136,68 +204,49 @@ class _MyTeamsPageState extends State<MyTeamsPage> {
                     ),
                     const SizedBox(height: 10),
                     ...invitations.map(
-                      (inv) => Container(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(20),
-                          color: theme.colorScheme.surface,
-                          border: Border.all(
-                            color:
-                                theme.colorScheme.outlineVariant.withOpacity(0.22),
+                      (inv) => Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                (inv['team_name'] ?? 'Equipo').toString(),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Te invitó ${(inv['invited_by_name'] ?? 'Jugador').toString()}',
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton(
+                                      onPressed: () => _respondInvitation(
+                                        invitationId: inv['id'] as int,
+                                        accept: false,
+                                      ),
+                                      child: const Text('Rechazar'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: FilledButton(
+                                      onPressed: () => _respondInvitation(
+                                        invitationId: inv['id'] as int,
+                                        accept: true,
+                                      ),
+                                      child: const Text('Aceptar'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              (inv['team_name'] ?? 'Equipo').toString(),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 16,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Te invitó ${(inv['invited_by_name'] ?? 'Jugador').toString()}',
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              [
-                                (inv['team_city'] ?? '').toString(),
-                                (inv['team_country'] ?? '').toString(),
-                              ].where((e) => e.trim().isNotEmpty).join(', '),
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton(
-                                    onPressed: () => _respondInvitation(
-                                      invitationId: inv['id'] as int,
-                                      teamId: inv['team_id'] as int,
-                                      accept: false,
-                                    ),
-                                    child: const Text('Rechazar'),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: FilledButton(
-                                    onPressed: () => _respondInvitation(
-                                      invitationId: inv['id'] as int,
-                                      teamId: inv['team_id'] as int,
-                                      accept: true,
-                                    ),
-                                    child: const Text('Aceptar'),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
                         ),
                       ),
                     ),
@@ -211,54 +260,64 @@ class _MyTeamsPageState extends State<MyTeamsPage> {
                   ),
                   const SizedBox(height: 10),
                   if (teams.isEmpty)
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(20),
-                        color: theme.colorScheme.surface,
-                        border: Border.all(
-                          color: theme.colorScheme.outlineVariant.withOpacity(0.22),
-                        ),
-                      ),
-                      child: const Text(
-                        'Todavía no formás parte de ningún equipo.',
+                    const Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text('Todavía no formás parte de ningún equipo.'),
                       ),
                     )
                   else
                     ...teams.map(
-                      (team) => Container(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(20),
-                          color: theme.colorScheme.surface,
-                          border: Border.all(
-                            color:
-                                theme.colorScheme.outlineVariant.withOpacity(0.22),
-                          ),
-                        ),
-                        child: ListTile(
-                          title: Text(
-                            (team['name'] ?? 'Equipo').toString(),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
+                      (team) {
+                        final isOwner = (team['my_role'] ?? '') == 'owner';
+
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          child: ListTile(
+                            leading: _teamLogo(team),
+                            title: Text(
+                              (team['name'] ?? 'Equipo').toString(),
+                              style: const TextStyle(fontWeight: FontWeight.w800),
                             ),
-                          ),
-                          subtitle: Text(
-                            '${_roleLabel((team['my_role'] ?? '').toString())} • ${(team['code'] ?? '').toString()}',
-                          ),
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => TeamDetailPage(
-                                  teamId: team['id'] as int,
+                            subtitle: Text(
+                              '${_roleLabel((team['my_role'] ?? '').toString())} • ${(team['code'] ?? 'Sin código').toString()}\n'
+                              '${(team['city'] ?? '').toString()}, ${(team['country'] ?? '').toString()}',
+                            ),
+                            isThreeLine: true,
+                            trailing: isOwner
+                                ? PopupMenuButton<String>(
+                                    onSelected: (value) {
+                                      if (value == 'edit') {
+                                        _editTeam(team);
+                                      } else if (value == 'delete') {
+                                        _deleteTeam(team);
+                                      }
+                                    },
+                                    itemBuilder: (_) => const [
+                                      PopupMenuItem(
+                                        value: 'edit',
+                                        child: Text('Editar'),
+                                      ),
+                                      PopupMenuItem(
+                                        value: 'delete',
+                                        child: Text('Borrar'),
+                                      ),
+                                    ],
+                                  )
+                                : const Icon(Icons.chevron_right),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => TeamDetailPage(
+                                    teamId: team['id'] as int,
+                                  ),
                                 ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
+                              );
+                            },
+                          ),
+                        );
+                      },
                     ),
                 ],
               ),

@@ -25,6 +25,9 @@ class _TeamInvitePlayerPageState extends State<TeamInvitePlayerPage> {
   final TextEditingController _searchController = TextEditingController();
 
   List<Map<String, dynamic>> results = [];
+  Set<String> memberIds = {};
+  Set<String> invitedIds = {};
+
   bool isLoading = false;
   Timer? _debounce;
   String? invitingUserId;
@@ -32,7 +35,7 @@ class _TeamInvitePlayerPageState extends State<TeamInvitePlayerPage> {
   @override
   void initState() {
     super.initState();
-    _searchPlayers();
+    _loadInitialData();
   }
 
   @override
@@ -40,6 +43,40 @@ class _TeamInvitePlayerPageState extends State<TeamInvitePlayerPage> {
     _debounce?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadInitialData() async {
+    await _loadTeamStatus();
+    await _searchPlayers();
+  }
+
+  Future<void> _loadTeamStatus() async {
+    final client = Supabase.instance.client;
+
+    final members = await client
+        .from('team_members')
+        .select('user_id')
+        .eq('team_id', widget.teamId);
+
+    final invitations = await client
+        .from('team_invitations')
+        .select('invited_user_id')
+        .eq('team_id', widget.teamId)
+        .eq('status', 'pending');
+
+    if (!mounted) return;
+
+    setState(() {
+      memberIds = List<Map<String, dynamic>>.from(members)
+          .map((e) => e['user_id']?.toString() ?? '')
+          .where((e) => e.isNotEmpty)
+          .toSet();
+
+      invitedIds = List<Map<String, dynamic>>.from(invitations)
+          .map((e) => e['invited_user_id']?.toString() ?? '')
+          .where((e) => e.isNotEmpty)
+          .toSet();
+    });
   }
 
   void _onSearchChanged(String value) {
@@ -56,9 +93,7 @@ class _TeamInvitePlayerPageState extends State<TeamInvitePlayerPage> {
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Código copiado'),
-      ),
+      const SnackBar(content: Text('Código copiado')),
     );
   }
 
@@ -66,6 +101,7 @@ class _TeamInvitePlayerPageState extends State<TeamInvitePlayerPage> {
     final query = _searchController.text.trim();
 
     if (!mounted) return;
+
     setState(() {
       isLoading = true;
     });
@@ -103,17 +139,36 @@ class _TeamInvitePlayerPageState extends State<TeamInvitePlayerPage> {
         results = mapped;
         isLoading = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
+
       setState(() {
         isLoading = false;
       });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error buscando jugadores: $e')),
+      );
     }
   }
 
   Future<void> _invitePlayer(Map<String, dynamic> player) async {
     final invitedUserId = player['id']?.toString() ?? '';
     if (invitedUserId.isEmpty) return;
+
+    if (memberIds.contains(invitedUserId)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ese jugador ya está en el equipo')),
+      );
+      return;
+    }
+
+    if (invitedIds.contains(invitedUserId)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ese jugador ya fue invitado')),
+      );
+      return;
+    }
 
     setState(() {
       invitingUserId = invitedUserId;
@@ -125,7 +180,10 @@ class _TeamInvitePlayerPageState extends State<TeamInvitePlayerPage> {
         invitedUserId: invitedUserId,
       );
 
+      await _loadTeamStatus();
+
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -135,21 +193,22 @@ class _TeamInvitePlayerPageState extends State<TeamInvitePlayerPage> {
       );
     } catch (e) {
       if (!mounted) return;
-      String message = e.toString().replaceFirst('Exception: ', '');
+
+      final message = e.toString().replaceFirst('Exception: ', '');
+
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('No se pudo invitar: $message'),
-        ),
+        SnackBar(content: Text('No se pudo invitar: $message')),
       );
     } finally {
       if (!mounted) return;
+
       setState(() {
         invitingUserId = null;
       });
     }
   }
 
-  Widget _buildAvatar({
+  Widget _avatar({
     required String fullName,
     required String? avatarUrl,
   }) {
@@ -158,14 +217,77 @@ class _TeamInvitePlayerPageState extends State<TeamInvitePlayerPage> {
 
     if (avatarUrl != null && avatarUrl.trim().isNotEmpty) {
       return CircleAvatar(
-        radius: 24,
+        radius: 25,
         backgroundImage: NetworkImage(avatarUrl),
       );
     }
 
     return CircleAvatar(
-      radius: 24,
+      radius: 25,
       child: Text(initial),
+    );
+  }
+
+  Widget _statusChip({
+    required BuildContext context,
+    required String text,
+    required IconData icon,
+  }) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: theme.colorScheme.surfaceContainerHighest,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14),
+          const SizedBox(width: 5),
+          Text(
+            text,
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _inviteButton({
+    required Map<String, dynamic> player,
+    required bool isInviting,
+    required bool isMember,
+    required bool isInvited,
+  }) {
+    if (isMember) {
+      return const Chip(
+        avatar: Icon(Icons.check_circle, size: 16),
+        label: Text('En equipo'),
+      );
+    }
+
+    if (isInvited) {
+      return const Chip(
+        avatar: Icon(Icons.schedule, size: 16),
+        label: Text('Invitado'),
+      );
+    }
+
+    return FilledButton.icon(
+      onPressed: isInviting ? null : () => _invitePlayer(player),
+      icon: isInviting
+          ? const SizedBox(
+              width: 15,
+              height: 15,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.person_add_alt_1, size: 18),
+      label: Text(isInviting ? 'Enviando...' : 'Invitar'),
     );
   }
 
@@ -180,8 +302,23 @@ class _TeamInvitePlayerPageState extends State<TeamInvitePlayerPage> {
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+          Container(
+            margin: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              color: theme.colorScheme.surface,
+              border: Border.all(
+                color: theme.colorScheme.outlineVariant.withOpacity(0.25),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
             child: Column(
               children: [
                 TextField(
@@ -203,25 +340,26 @@ class _TeamInvitePlayerPageState extends State<TeamInvitePlayerPage> {
                     filled: true,
                     fillColor: theme.colorScheme.surfaceContainerHighest,
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(18),
                       borderSide: BorderSide.none,
                     ),
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
                 Row(
                   children: [
                     Icon(
                       Icons.info_outline,
-                      size: 16,
+                      size: 17,
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 7),
                     Expanded(
                       child: Text(
-                        'Buscá jugadores por nombre o código único y mandales invitación al equipo.',
+                        'Buscá jugadores por nombre o por código único. Si ya están invitados o dentro del equipo, lo vas a ver acá.',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
+                          height: 1.3,
                         ),
                       ),
                     ),
@@ -248,20 +386,23 @@ class _TeamInvitePlayerPageState extends State<TeamInvitePlayerPage> {
                     : ListView.separated(
                         padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
                         itemCount: results.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
                         itemBuilder: (context, index) {
                           final item = results[index];
+                          final id = item['id']?.toString() ?? '';
                           final fullName =
                               (item['full_name'] ?? 'Jugador').toString();
                           final avatarUrl = item['avatar_url']?.toString();
                           final publicCode =
                               (item['public_code'] ?? '').toString();
-                          final isInviting =
-                              invitingUserId == item['id']?.toString();
+
+                          final isInviting = invitingUserId == id;
+                          final isMember = memberIds.contains(id);
+                          final isInvited = invitedIds.contains(id);
 
                           return Container(
                             decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(20),
+                              borderRadius: BorderRadius.circular(22),
                               color: theme.colorScheme.surface,
                               border: Border.all(
                                 color: theme.colorScheme.outlineVariant
@@ -279,7 +420,7 @@ class _TeamInvitePlayerPageState extends State<TeamInvitePlayerPage> {
                               padding: const EdgeInsets.all(14),
                               child: Row(
                                 children: [
-                                  _buildAvatar(
+                                  _avatar(
                                     fullName: fullName,
                                     avatarUrl: avatarUrl,
                                   ),
@@ -291,81 +432,53 @@ class _TeamInvitePlayerPageState extends State<TeamInvitePlayerPage> {
                                       children: [
                                         Text(
                                           fullName,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
                                           style: const TextStyle(
-                                            fontWeight: FontWeight.w800,
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 15,
                                           ),
                                         ),
-                                        if (publicCode.isNotEmpty) ...[
-                                          const SizedBox(height: 8),
-                                          Wrap(
-                                            spacing: 8,
-                                            runSpacing: 8,
-                                            children: [
-                                              Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                  horizontal: 10,
-                                                  vertical: 6,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  borderRadius:
-                                                      BorderRadius.circular(999),
-                                                  color: theme
-                                                      .colorScheme
-                                                      .surfaceContainerHighest,
-                                                ),
-                                                child: Text(
-                                                  publicCode,
-                                                  style: const TextStyle(
-                                                    fontWeight: FontWeight.w700,
-                                                    fontSize: 12,
-                                                  ),
-                                                ),
-                                              ),
+                                        const SizedBox(height: 8),
+                                        Wrap(
+                                          spacing: 8,
+                                          runSpacing: 8,
+                                          children: [
+                                            if (publicCode.isNotEmpty)
                                               InkWell(
                                                 borderRadius:
                                                     BorderRadius.circular(999),
                                                 onTap: () =>
                                                     _copyCode(publicCode),
-                                                child: Container(
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
-                                                    horizontal: 10,
-                                                    vertical: 6,
-                                                  ),
-                                                  decoration: BoxDecoration(
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                            999),
-                                                    color: theme.colorScheme
-                                                        .primaryContainer,
-                                                  ),
-                                                  child: Text(
-                                                    'Copiar código',
-                                                    style: TextStyle(
-                                                      fontWeight:
-                                                          FontWeight.w700,
-                                                      fontSize: 12,
-                                                      color: theme.colorScheme
-                                                          .onPrimaryContainer,
-                                                    ),
-                                                  ),
+                                                child: _statusChip(
+                                                  context: context,
+                                                  text: publicCode,
+                                                  icon: Icons.copy,
                                                 ),
                                               ),
-                                            ],
-                                          ),
-                                        ],
+                                            if (isMember)
+                                              _statusChip(
+                                                context: context,
+                                                text: 'En equipo',
+                                                icon: Icons.check_circle,
+                                              ),
+                                            if (isInvited)
+                                              _statusChip(
+                                                context: context,
+                                                text: 'Invitado',
+                                                icon: Icons.schedule,
+                                              ),
+                                          ],
+                                        ),
                                       ],
                                     ),
                                   ),
                                   const SizedBox(width: 10),
-                                  FilledButton(
-                                    onPressed: isInviting
-                                        ? null
-                                        : () => _invitePlayer(item),
-                                    child: Text(
-                                      isInviting ? 'Enviando...' : 'Invitar',
-                                    ),
+                                  _inviteButton(
+                                    player: item,
+                                    isInviting: isInviting,
+                                    isMember: isMember,
+                                    isInvited: isInvited,
                                   ),
                                 ],
                               ),

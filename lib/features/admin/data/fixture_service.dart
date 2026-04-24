@@ -9,30 +9,36 @@ class FixtureService {
   }
 
   Future<void> generateFixture(int tournamentId) async {
-    final teamsResponse = await SupabaseService.client
+    final tournamentTeamsResponse = await SupabaseService.client
         .from('tournament_teams')
         .select()
         .eq('tournament_id', tournamentId)
         .order('id');
 
-    final teams = List<Map<String, dynamic>>.from(teamsResponse);
+    final tournamentTeams =
+        List<Map<String, dynamic>>.from(tournamentTeamsResponse);
 
-    if (teams.length < 2) {
-      throw Exception('Se necesitan al menos 2 equipos para generar fixture');
+    if (tournamentTeams.length < 2) {
+      throw Exception('Se necesitan al menos 2 equipos aprobados');
     }
 
     await clearTournamentMatches(tournamentId);
 
     int round = 1;
 
-    for (int i = 0; i < teams.length; i++) {
-      for (int j = i + 1; j < teams.length; j++) {
+    for (int i = 0; i < tournamentTeams.length; i++) {
+      for (int j = i + 1; j < tournamentTeams.length; j++) {
         await SupabaseService.client.from('matches').insert({
           'tournament_id': tournamentId,
-          'home_team_id': teams[i]['id'],
-          'away_team_id': teams[j]['id'],
+
+          // Guardamos el ID de tournament_teams
+          'home_team_id': tournamentTeams[i]['id'],
+          'away_team_id': tournamentTeams[j]['id'],
+
           'round_number': round,
           'status': 'scheduled',
+          'home_score': 0,
+          'away_score': 0,
         });
 
         round++;
@@ -40,7 +46,9 @@ class FixtureService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getMatchesWithTeams(int tournamentId) async {
+  Future<List<Map<String, dynamic>>> getMatchesWithTeams(
+    int tournamentId,
+  ) async {
     final matchesResponse = await SupabaseService.client
         .from('matches')
         .select()
@@ -49,23 +57,82 @@ class FixtureService {
 
     final matches = List<Map<String, dynamic>>.from(matchesResponse);
 
-    final teamsResponse = await SupabaseService.client
+    final tournamentTeamsResponse = await SupabaseService.client
         .from('tournament_teams')
         .select()
         .eq('tournament_id', tournamentId);
 
-    final teams = List<Map<String, dynamic>>.from(teamsResponse);
+    final tournamentTeams =
+        List<Map<String, dynamic>>.from(tournamentTeamsResponse);
+
+    final persistentTeamIds = tournamentTeams
+        .map((team) => team['team_id'])
+        .whereType<int>()
+        .toSet()
+        .toList();
+
+    final persistentTeams = persistentTeamIds.isEmpty
+        ? <Map<String, dynamic>>[]
+        : List<Map<String, dynamic>>.from(
+            await SupabaseService.client
+                .from('teams')
+                .select('id, name, logo_url, code')
+                .inFilter('id', persistentTeamIds),
+          );
+
+    Map<String, dynamic> getTournamentTeamById(dynamic id) {
+      return tournamentTeams.firstWhere(
+        (team) => team['id'] == id,
+        orElse: () => <String, dynamic>{},
+      );
+    }
+
+    Map<String, dynamic> getPersistentTeamById(dynamic id) {
+      return persistentTeams.firstWhere(
+        (team) => team['id'] == id,
+        orElse: () => <String, dynamic>{},
+      );
+    }
+
+    String getTeamName(Map<String, dynamic> tournamentTeam) {
+      final teamId = tournamentTeam['team_id'];
+
+      if (teamId != null) {
+        final realTeam = getPersistentTeamById(teamId);
+        final realName = realTeam['name']?.toString();
+
+        if (realName != null && realName.trim().isNotEmpty) {
+          return realName;
+        }
+      }
+
+      final fallbackName = tournamentTeam['name']?.toString();
+
+      if (fallbackName != null && fallbackName.trim().isNotEmpty) {
+        return fallbackName;
+      }
+
+      return 'Equipo';
+    }
+
+    String? getTeamLogo(Map<String, dynamic> tournamentTeam) {
+      final teamId = tournamentTeam['team_id'];
+
+      if (teamId == null) return null;
+
+      final realTeam = getPersistentTeamById(teamId);
+      return realTeam['logo_url']?.toString();
+    }
 
     for (final match in matches) {
-      final homeTeam = teams.firstWhere(
-        (team) => team['id'] == match['home_team_id'],
-      );
-      final awayTeam = teams.firstWhere(
-        (team) => team['id'] == match['away_team_id'],
-      );
+      final homeTournamentTeam = getTournamentTeamById(match['home_team_id']);
+      final awayTournamentTeam = getTournamentTeamById(match['away_team_id']);
 
-      match['home_team_name'] = homeTeam['name'];
-      match['away_team_name'] = awayTeam['name'];
+      match['home_team_name'] = getTeamName(homeTournamentTeam);
+      match['away_team_name'] = getTeamName(awayTournamentTeam);
+
+      match['home_team_logo_url'] = getTeamLogo(homeTournamentTeam);
+      match['away_team_logo_url'] = getTeamLogo(awayTournamentTeam);
     }
 
     return matches;

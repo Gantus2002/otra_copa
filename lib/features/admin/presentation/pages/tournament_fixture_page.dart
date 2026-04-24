@@ -45,7 +45,9 @@ class _TournamentFixturePageState extends State<TournamentFixturePage> {
 
   Future<void> _loadMatches() async {
     try {
-      final data = await _fixtureService.getMatchesWithTeams(widget.tournamentId);
+      final data = await _fixtureService.getMatchesWithTeams(
+        widget.tournamentId,
+      );
 
       _safeSetState(() {
         matches = data;
@@ -70,7 +72,7 @@ class _TournamentFixturePageState extends State<TournamentFixturePage> {
 
       _showSnackBar('Fixture generado correctamente');
     } catch (e) {
-      _showSnackBar('Error generando fixture: $e');
+      _showSnackBar(e.toString().replaceFirst('Exception: ', ''));
     } finally {
       _safeSetState(() {
         isGenerating = false;
@@ -86,7 +88,6 @@ class _TournamentFixturePageState extends State<TournamentFixturePage> {
         return 'En juego';
       case 'scheduled':
         return 'Programado';
-      case 'pending':
       default:
         return 'Pendiente';
     }
@@ -100,10 +101,31 @@ class _TournamentFixturePageState extends State<TournamentFixturePage> {
         return Colors.orange;
       case 'scheduled':
         return Colors.blue;
-      case 'pending':
       default:
         return Theme.of(context).colorScheme.onSurfaceVariant;
     }
+  }
+
+  Widget _teamLogo(String? logoUrl) {
+    if (logoUrl != null && logoUrl.trim().isNotEmpty) {
+      return ClipOval(
+        child: Image.network(
+          logoUrl,
+          width: 34,
+          height: 34,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => const CircleAvatar(
+            radius: 17,
+            child: Icon(Icons.shield_outlined, size: 17),
+          ),
+        ),
+      );
+    }
+
+    return const CircleAvatar(
+      radius: 17,
+      child: Icon(Icons.shield_outlined, size: 17),
+    );
   }
 
   @override
@@ -116,87 +138,182 @@ class _TournamentFixturePageState extends State<TournamentFixturePage> {
       ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                ElevatedButton.icon(
-                  onPressed: isGenerating ? null : _generateFixture,
-                  icon: const Icon(Icons.calendar_month),
-                  label: Text(
-                    isGenerating ? 'Generando...' : 'Generar fixture',
-                  ),
-                ),
-                const SizedBox(height: 20),
-                if (matches.isEmpty)
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.only(top: 40),
-                      child: Text('Todavía no hay partidos generados'),
+          : RefreshIndicator(
+              onRefresh: _loadMatches,
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(22),
+                      color: theme.colorScheme.surface,
+                      border: Border.all(
+                        color: theme.colorScheme.outlineVariant.withOpacity(0.25),
+                      ),
                     ),
-                  )
-                else
-                  ...matches.map(
-                    (match) {
-                      final homeTeam =
-                          (match['home_team_name'] ?? 'Equipo local').toString();
-                      final awayTeam =
-                          (match['away_team_name'] ?? 'Equipo visitante')
-                              .toString();
-                      final roundNumber =
-                          (match['round_number'] ?? '-').toString();
-                      final status = (match['status'] ?? 'pending').toString();
-                      final homeScore = (match['home_score'] ?? 0).toString();
-                      final awayScore = (match['away_score'] ?? 0).toString();
-
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        child: ListTile(
-                          title: Text('$homeTeam vs $awayTeam'),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Ronda $roundNumber'),
-                              const SizedBox(height: 4),
-                              Text(
-                                _statusText(status),
-                                style: TextStyle(
-                                  color: _statusColor(context, status),
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Fixture del torneo',
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
                           ),
-                          trailing: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                '$homeScore - $awayScore',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Icon(
-                                Icons.chevron_right,
-                                size: 18,
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ],
-                          ),
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => MatchDetailPage(match: match),
-                              ),
-                            );
-                          },
                         ),
-                      );
-                    },
+                        const SizedBox(height: 6),
+                        Text(
+                          'Generá todos los cruces automáticamente con los equipos aprobados.',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: isGenerating ? null : _generateFixture,
+                            icon: isGenerating
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.calendar_month),
+                            label: Text(
+                              isGenerating ? 'Generando...' : 'Generar fixture',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-              ],
+                  const SizedBox(height: 20),
+                  if (matches.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 40),
+                      child: Center(
+                        child: Text('Todavía no hay partidos generados'),
+                      ),
+                    )
+                  else
+                    ...matches.map(
+                      (match) {
+                        final homeTeam =
+                            (match['home_team_name'] ?? 'Equipo local').toString();
+                        final awayTeam =
+                            (match['away_team_name'] ?? 'Equipo visitante')
+                                .toString();
+
+                        final homeLogo = match['home_team_logo_url']?.toString();
+                        final awayLogo = match['away_team_logo_url']?.toString();
+
+                        final roundNumber =
+                            (match['round_number'] ?? '-').toString();
+                        final status = (match['status'] ?? 'pending').toString();
+                        final homeScore = (match['home_score'] ?? 0).toString();
+                        final awayScore = (match['away_score'] ?? 0).toString();
+
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => MatchDetailPage(match: match),
+                                ),
+                              );
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        'Ronda $roundNumber',
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          fontWeight: FontWeight.w800,
+                                          color: theme.colorScheme.onSurfaceVariant,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      Text(
+                                        _statusText(status),
+                                        style: TextStyle(
+                                          color: _statusColor(context, status),
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 14),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Row(
+                                          children: [
+                                            _teamLogo(homeLogo),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
+                                                homeTeam,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                        ),
+                                        child: Text(
+                                          '$homeScore - $awayScore',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 18,
+                                          ),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.end,
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                awayTeam,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                textAlign: TextAlign.end,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            _teamLogo(awayLogo),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                ],
+              ),
             ),
     );
   }

@@ -2,6 +2,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/services/supabase_service.dart';
 
 class TournamentRemoteService {
+  // 🔹 CREAR TORNEO
   Future<void> createTournament({
     required String name,
     required String location,
@@ -51,6 +52,7 @@ class TournamentRemoteService {
     });
   }
 
+  // 🔹 BUSCAR POR CÓDIGO
   Future<Map<String, dynamic>?> findByInviteCode(String code) async {
     final response = await SupabaseService.client
         .from('tournaments')
@@ -61,6 +63,7 @@ class TournamentRemoteService {
     return response;
   }
 
+  // 🔹 MIS TORNEOS
   Future<List<Map<String, dynamic>>> getMyTournaments() async {
     final user = Supabase.instance.client.auth.currentUser;
 
@@ -77,26 +80,33 @@ class TournamentRemoteService {
     return List<Map<String, dynamic>>.from(response);
   }
 
+  // 🔹 (LO MISMO PERO MÁS CLARO PARA FUTURO)
   Future<List<Map<String, dynamic>>> getMyCreatedTournaments() async {
-    final user = Supabase.instance.client.auth.currentUser;
+    return getMyTournaments();
+  }
 
-    if (user == null) {
-      throw Exception('No hay usuario autenticado');
-    }
-
+  // 🔹 TODOS LOS TORNEOS (BASE)
+  Future<List<Map<String, dynamic>>> getAllVisibleTournaments() async {
     final response = await SupabaseService.client
         .from('tournaments')
         .select()
-        .eq('owner_id', user.id)
+        .order('start_date', ascending: true)
         .order('id', ascending: false);
 
     return List<Map<String, dynamic>>.from(response);
   }
 
-  Future<List<Map<String, dynamic>>> getAllVisibleTournaments() async {
+  // 🔥 NUEVO: TORNEOS POR CIUDAD (CLAVE)
+  Future<List<Map<String, dynamic>>> getTournamentsByCity(String city) async {
+    if (city.trim().isEmpty) {
+      return getAllVisibleTournaments();
+    }
+
     final response = await SupabaseService.client
         .from('tournaments')
         .select()
+        .ilike('location', '%$city%')
+        .order('start_date', ascending: true)
         .order('id', ascending: false);
 
     return List<Map<String, dynamic>>.from(response);

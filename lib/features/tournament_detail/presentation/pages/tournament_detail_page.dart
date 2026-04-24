@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../invite/data/join_request_service.dart';
+import '../../../teams/data/team_service.dart';
+
 class TournamentDetailPage extends StatefulWidget {
   final int tournamentId;
 
@@ -14,8 +17,12 @@ class TournamentDetailPage extends StatefulWidget {
 }
 
 class _TournamentDetailPageState extends State<TournamentDetailPage> {
+  final TeamService _teamService = TeamService();
+  final JoinRequestService _joinService = JoinRequestService();
+
   Map<String, dynamic>? tournament;
   bool loading = true;
+  bool joiningTeam = false;
 
   @override
   void initState() {
@@ -55,6 +62,96 @@ class _TournamentDetailPageState extends State<TournamentDetailPage> {
     }
   }
 
+  Future<void> _inscribirEquipo() async {
+    final user = Supabase.instance.client.auth.currentUser;
+
+    if (user == null) {
+      _showSnackBar('Tenés que iniciar sesión');
+      return;
+    }
+
+    _safeSetState(() {
+      joiningTeam = true;
+    });
+
+    try {
+      final teams = await _teamService.getMyTeams();
+
+      if (!mounted) return;
+
+      if (teams.isEmpty) {
+        _showSnackBar('No tenés equipos creados');
+        return;
+      }
+
+      final selectedTeam = await showModalBottomSheet<Map<String, dynamic>>(
+        context: context,
+        showDragHandle: true,
+        builder: (context) {
+          return SafeArea(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              children: [
+                Text(
+                  'Elegí un equipo',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 12),
+                ...teams.map(
+                  (team) {
+                    final name = (team['name'] ?? 'Equipo').toString();
+                    final city = (team['city'] ?? '').toString();
+                    final country = (team['country'] ?? '').toString();
+                    final code = (team['code'] ?? '').toString();
+                    final logoUrl = team['logo_url']?.toString();
+
+                    return Card(
+                      child: ListTile(
+                        leading: _TeamLogo(logoUrl: logoUrl),
+                        title: Text(
+                          name,
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        subtitle: Text(
+                          [
+                            [city, country]
+                                .where((e) => e.trim().isNotEmpty)
+                                .join(', '),
+                            code,
+                          ].where((e) => e.trim().isNotEmpty).join(' • '),
+                        ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => Navigator.pop(context, team),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          );
+        },
+      );
+
+      if (selectedTeam == null) return;
+
+      await _joinService.createTeamRequest(
+        tournamentId: widget.tournamentId,
+        teamId: selectedTeam['id'] as int,
+        userId: user.id,
+      );
+
+      _showSnackBar('Solicitud enviada. El organizador debe aprobar tu equipo.');
+    } catch (e) {
+      _showSnackBar(e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      _safeSetState(() {
+        joiningTeam = false;
+      });
+    }
+  }
+
   String _textValue(String key, {String fallback = '-'}) {
     final value = tournament?[key];
     if (value == null) return fallback;
@@ -63,6 +160,18 @@ class _TournamentDetailPageState extends State<TournamentDetailPage> {
     if (text.isEmpty) return fallback;
 
     return text;
+  }
+
+  String _firstTextValue(List<String> keys, {String fallback = '-'}) {
+    for (final key in keys) {
+      final value = tournament?[key];
+      if (value == null) continue;
+
+      final text = value.toString().trim();
+      if (text.isNotEmpty) return text;
+    }
+
+    return fallback;
   }
 
   bool _boolValue(String key) {
@@ -74,6 +183,20 @@ class _TournamentDetailPageState extends State<TournamentDetailPage> {
     if (value == null) return false;
     if (value is String) return value.trim().isNotEmpty;
     return true;
+  }
+
+  String _moneyText(dynamic value) {
+    if (value == null) return '';
+
+    if (value is num) {
+      if (value <= 0) return '';
+      return 'Gs. ${value.toStringAsFixed(0)}';
+    }
+
+    final parsed = double.tryParse(value.toString());
+    if (parsed == null || parsed <= 0) return '';
+
+    return 'Gs. ${parsed.toStringAsFixed(0)}';
   }
 
   @override
@@ -98,17 +221,20 @@ class _TournamentDetailPageState extends State<TournamentDetailPage> {
     }
 
     final name = _textValue('name');
-    final date = _textValue('date');
+    final date = _firstTextValue(['start_date', 'date']);
     final location = _textValue('location');
-    final type = _textValue('type');
-    final mode = _textValue('mode');
+    final type = _firstTextValue(['tournament_type', 'type']);
+    final mode = _firstTextValue(['game_mode', 'mode']);
     final category = _textValue('category');
     final prizes = _textValue('prizes', fallback: '');
     final inviteCode = _textValue('invite_code', fallback: '');
     final duration = _textValue('duration', fallback: '');
     final tieBreaker = _textValue('tie_breaker', fallback: '');
     final teamsCount = _textValue('teams_count', fallback: '');
-    final cost = _textValue('cost', fallback: '');
+    final joinMode = _textValue('join_mode', fallback: '');
+    final individualFee = _moneyText(tournament?['entry_fee_individual']);
+    final teamFee = _moneyText(tournament?['entry_fee_team']);
+
     final hasReferees = _boolValue('has_referees');
     final hasOffside = _boolValue('has_offside');
     final hasCardSanctions = _boolValue('has_card_sanctions');
@@ -146,7 +272,7 @@ class _TournamentDetailPageState extends State<TournamentDetailPage> {
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.surface.withValues(alpha: 0.9),
+                        color: theme.colorScheme.surface.withOpacity(0.9),
                         borderRadius: BorderRadius.circular(30),
                       ),
                       child: Text(
@@ -206,9 +332,7 @@ class _TournamentDetailPageState extends State<TournamentDetailPage> {
                 ],
               ),
             ),
-
             const SizedBox(height: 20),
-
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -221,11 +345,14 @@ class _TournamentDetailPageState extends State<TournamentDetailPage> {
                     icon: Icons.format_list_numbered,
                     label: '$teamsCount equipos',
                   ),
+                if (joinMode.isNotEmpty)
+                  _InfoChip(
+                    icon: Icons.how_to_reg_outlined,
+                    label: joinMode,
+                  ),
               ],
             ),
-
             const SizedBox(height: 24),
-
             Text(
               'Información general',
               style: theme.textTheme.titleLarge?.copyWith(
@@ -233,7 +360,6 @@ class _TournamentDetailPageState extends State<TournamentDetailPage> {
               ),
             ),
             const SizedBox(height: 12),
-
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -262,12 +388,20 @@ class _TournamentDetailPageState extends State<TournamentDetailPage> {
                       title: 'Categoría',
                       value: category,
                     ),
-                    if (cost.isNotEmpty) ...[
+                    if (individualFee.isNotEmpty) ...[
                       const Divider(),
                       _DetailRow(
-                        icon: Icons.payments_outlined,
-                        title: 'Costo de inscripción',
-                        value: cost,
+                        icon: Icons.person_outline,
+                        title: 'Costo individual',
+                        value: individualFee,
+                      ),
+                    ],
+                    if (teamFee.isNotEmpty) ...[
+                      const Divider(),
+                      _DetailRow(
+                        icon: Icons.groups_outlined,
+                        title: 'Costo por equipo',
+                        value: teamFee,
                       ),
                     ],
                     if (inviteCode.isNotEmpty) ...[
@@ -282,9 +416,7 @@ class _TournamentDetailPageState extends State<TournamentDetailPage> {
                 ),
               ),
             ),
-
             const SizedBox(height: 24),
-
             Text(
               'Reglas y configuración',
               style: theme.textTheme.titleLarge?.copyWith(
@@ -292,7 +424,6 @@ class _TournamentDetailPageState extends State<TournamentDetailPage> {
               ),
             ),
             const SizedBox(height: 12),
-
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -336,7 +467,6 @@ class _TournamentDetailPageState extends State<TournamentDetailPage> {
                 ),
               ),
             ),
-
             if (prizes.isNotEmpty) ...[
               const SizedBox(height: 24),
               Text(
@@ -365,18 +495,22 @@ class _TournamentDetailPageState extends State<TournamentDetailPage> {
                 ),
               ),
             ],
-
             const SizedBox(height: 24),
-
             Row(
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: () {
-                      _showSnackBar('La inscripción la conectamos en el siguiente paso');
-                    },
-                    icon: const Icon(Icons.group_add),
-                    label: const Text('Inscribirme'),
+                    onPressed: joiningTeam ? null : _inscribirEquipo,
+                    icon: joiningTeam
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.groups),
+                    label: Text(
+                      joiningTeam ? 'Enviando...' : 'Inscribir equipo',
+                    ),
                   ),
                 ),
               ],
@@ -398,6 +532,35 @@ class _TournamentDetailPageState extends State<TournamentDetailPage> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _TeamLogo extends StatelessWidget {
+  final String? logoUrl;
+
+  const _TeamLogo({
+    required this.logoUrl,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (logoUrl != null && logoUrl!.trim().isNotEmpty) {
+      return ClipOval(
+        child: Image.network(
+          logoUrl!,
+          width: 42,
+          height: 42,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => const CircleAvatar(
+            child: Icon(Icons.shield_outlined),
+          ),
+        ),
+      );
+    }
+
+    return const CircleAvatar(
+      child: Icon(Icons.shield_outlined),
     );
   }
 }

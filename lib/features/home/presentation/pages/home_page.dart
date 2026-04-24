@@ -12,6 +12,7 @@ import '../../../tournament_detail/presentation/pages/tournament_detail_page.dar
 import '../../../tournaments/presentation/pages/tournaments_page.dart';
 import '../../data/home_content_service.dart';
 import '../../data/upcoming_service.dart';
+import 'select_sport_page.dart';
 
 class HomePage extends StatefulWidget {
   final String selectedCity;
@@ -41,6 +42,7 @@ class _HomePageState extends State<HomePage> {
   bool loading = true;
   bool loadingUpcoming = true;
   int currentBanner = 0;
+  String selectedSport = 'Fútbol';
 
   Timer? _bannerTimer;
 
@@ -216,6 +218,38 @@ class _HomePageState extends State<HomePage> {
     }
 
     _showSnackBar('Tipo de destino no soportado');
+  }
+
+  Future<void> _pickCity() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LocationPage(
+          selectedCity: widget.selectedCity,
+        ),
+      ),
+    );
+
+    if (result != null && result is String) {
+      widget.onCityChanged(result);
+    }
+  }
+
+  Future<void> _pickSport() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SelectSportPage(
+          selectedSport: selectedSport,
+        ),
+      ),
+    );
+
+    if (result != null && result is String) {
+      _safeSetState(() {
+        selectedSport = result;
+      });
+    }
   }
 
   Widget _sectionTitle(
@@ -522,17 +556,25 @@ class _HomePageState extends State<HomePage> {
                           borderRadius: BorderRadius.circular(14),
                           child: InkWell(
                             borderRadius: BorderRadius.circular(14),
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => LocationPage(
-                                    selectedCity: widget.selectedCity,
-                                    onCitySelected: widget.onCityChanged,
-                                  ),
-                                ),
-                              );
-                            },
+                            onTap: _pickSport,
+                            child: Padding(
+                              padding: const EdgeInsets.all(10),
+                              child: Icon(
+                                Icons.sports_soccer,
+                                color: selectedSport == 'Fútbol'
+                                    ? theme.colorScheme.primary
+                                    : theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Material(
+                          color: theme.colorScheme.surface,
+                          borderRadius: BorderRadius.circular(14),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(14),
+                            onTap: _pickCity,
                             child: Padding(
                               padding: const EdgeInsets.all(10),
                               child: Icon(
@@ -552,6 +594,13 @@ class _HomePageState extends State<HomePage> {
                         letterSpacing: -0.2,
                       ),
                     ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Deporte: $selectedSport',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
                     const SizedBox(height: 24),
 
                     _upcomingSection(context),
@@ -561,8 +610,7 @@ class _HomePageState extends State<HomePage> {
                       _sectionTitle(
                         context,
                         'Destacados',
-                        subtitle:
-                            'Torneos, anuncios y novedades importantes',
+                        subtitle: 'Torneos, anuncios y novedades importantes',
                       ),
                       const SizedBox(height: 14),
                       SizedBox(
@@ -589,26 +637,21 @@ class _HomePageState extends State<HomePage> {
                                     borderRadius: BorderRadius.circular(28),
                                     boxShadow: [
                                       BoxShadow(
-                                        color:
-                                            Colors.black.withOpacity(0.12),
+                                        color: Colors.black.withOpacity(0.12),
                                         blurRadius: 18,
                                         offset: const Offset(0, 8),
                                       ),
                                     ],
                                   ),
                                   child: ClipRRect(
-                                    borderRadius:
-                                        BorderRadius.circular(28),
+                                    borderRadius: BorderRadius.circular(28),
                                     child: Stack(
                                       fit: StackFit.expand,
                                       children: [
                                         Image.network(
-                                          banner['image_url']
-                                                  ?.toString() ??
-                                              '',
+                                          banner['image_url']?.toString() ?? '',
                                           fit: BoxFit.cover,
-                                          errorBuilder:
-                                              (_, __, ___) => Container(
+                                          errorBuilder: (_, __, ___) => Container(
                                             color: theme.colorScheme
                                                 .surfaceContainerHighest,
                                             alignment: Alignment.center,
@@ -620,14 +663,11 @@ class _HomePageState extends State<HomePage> {
                                         Container(
                                           decoration: BoxDecoration(
                                             gradient: LinearGradient(
-                                              begin:
-                                                  Alignment.bottomCenter,
+                                              begin: Alignment.bottomCenter,
                                               end: Alignment.topCenter,
                                               colors: [
-                                                Colors.black.withOpacity(
-                                                    0.72),
-                                                Colors.black.withOpacity(
-                                                    0.10),
+                                                Colors.black.withOpacity(0.72),
+                                                Colors.black.withOpacity(0.10),
                                               ],
                                             ),
                                           ),
@@ -642,19 +682,15 @@ class _HomePageState extends State<HomePage> {
                                             children: [
                                               Container(
                                                 padding:
-                                                    const EdgeInsets
-                                                        .symmetric(
+                                                    const EdgeInsets.symmetric(
                                                   horizontal: 10,
                                                   vertical: 6,
                                                 ),
-                                                decoration:
-                                                    BoxDecoration(
-                                                  color: Colors.white
-                                                      .withOpacity(0.18),
+                                                decoration: BoxDecoration(
+                                                  color:
+                                                      Colors.white.withOpacity(0.18),
                                                   borderRadius:
-                                                      BorderRadius
-                                                          .circular(
-                                                              30),
+                                                      BorderRadius.circular(30),
                                                 ),
                                                 child: Text(
                                                   (banner['target_type']
@@ -662,49 +698,32 @@ class _HomePageState extends State<HomePage> {
                                                           'tournament')
                                                       ? 'Torneo'
                                                       : 'Destacado',
-                                                  style:
-                                                      const TextStyle(
-                                                    color:
-                                                        Colors.white,
-                                                    fontWeight:
-                                                        FontWeight.w600,
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontWeight: FontWeight.w600,
                                                     fontSize: 12,
                                                   ),
                                                 ),
                                               ),
-                                              const SizedBox(
-                                                  height: 10),
+                                              const SizedBox(height: 10),
                                               Text(
-                                                banner['title']
-                                                        ?.toString() ??
-                                                    '',
+                                                banner['title']?.toString() ?? '',
                                                 maxLines: 2,
-                                                overflow:
-                                                    TextOverflow
-                                                        .ellipsis,
-                                                style:
-                                                    const TextStyle(
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
                                                   color: Colors.white,
                                                   fontSize: 22,
-                                                  fontWeight:
-                                                      FontWeight.w800,
+                                                  fontWeight: FontWeight.w800,
                                                   height: 1.1,
                                                 ),
                                               ),
-                                              const SizedBox(
-                                                  height: 6),
+                                              const SizedBox(height: 6),
                                               Text(
-                                                banner['subtitle']
-                                                        ?.toString() ??
-                                                    '',
+                                                banner['subtitle']?.toString() ?? '',
                                                 maxLines: 2,
-                                                overflow:
-                                                    TextOverflow
-                                                        .ellipsis,
-                                                style:
-                                                    const TextStyle(
-                                                  color:
-                                                      Colors.white70,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  color: Colors.white70,
                                                   fontSize: 14,
                                                   height: 1.3,
                                                 ),
@@ -723,26 +742,19 @@ class _HomePageState extends State<HomePage> {
                       ),
                       const SizedBox(height: 12),
                       Row(
-                        mainAxisAlignment:
-                            MainAxisAlignment.center,
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: List.generate(
                           banners.length,
                           (i) => AnimatedContainer(
-                            duration: const Duration(
-                                milliseconds: 220),
-                            margin:
-                                const EdgeInsets.symmetric(
-                                    horizontal: 3),
-                            width:
-                                currentBanner == i ? 18 : 7,
+                            duration: const Duration(milliseconds: 220),
+                            margin: const EdgeInsets.symmetric(horizontal: 3),
+                            width: currentBanner == i ? 18 : 7,
                             height: 7,
                             decoration: BoxDecoration(
                               color: currentBanner == i
                                   ? theme.colorScheme.primary
-                                  : theme.colorScheme
-                                      .outlineVariant,
-                              borderRadius:
-                                  BorderRadius.circular(999),
+                                  : theme.colorScheme.outlineVariant,
+                              borderRadius: BorderRadius.circular(999),
                             ),
                           ),
                         ),
@@ -753,8 +765,7 @@ class _HomePageState extends State<HomePage> {
                     _sectionTitle(
                       context,
                       'Accesos rápidos',
-                      subtitle:
-                          'Entrá rápido a las funciones principales',
+                      subtitle: 'Entrá rápido a las funciones principales',
                     ),
                     const SizedBox(height: 14),
 
@@ -764,8 +775,7 @@ class _HomePageState extends State<HomePage> {
                       mainAxisSpacing: 14,
                       shrinkWrap: true,
                       childAspectRatio: 1.05,
-                      physics:
-                          const NeverScrollableScrollPhysics(),
+                      physics: const NeverScrollableScrollPhysics(),
                       children: [
                         _premiumQuickCard(
                           context: context,
@@ -777,16 +787,14 @@ class _HomePageState extends State<HomePage> {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) =>
-                                    const CreateTournamentPage(),
+                                builder: (_) => const CreateTournamentPage(),
                               ),
                             );
                           },
                         ),
                         _premiumQuickCard(
                           context: context,
-                          icon:
-                              Icons.travel_explore_outlined,
+                          icon: Icons.travel_explore_outlined,
                           title: 'Buscar torneo',
                           subtitle:
                               'Explorá torneos disponibles en tu ciudad',
@@ -794,10 +802,8 @@ class _HomePageState extends State<HomePage> {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) =>
-                                    TournamentsPage(
-                                  selectedCity:
-                                      widget.selectedCity,
+                                builder: (_) => TournamentsPage(
+                                  selectedCity: widget.selectedCity,
                                 ),
                               ),
                             );
@@ -813,16 +819,14 @@ class _HomePageState extends State<HomePage> {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) =>
-                                    const JoinByCodePage(),
+                                builder: (_) => const JoinByCodePage(),
                               ),
                             );
                           },
                         ),
                         _premiumQuickCard(
                           context: context,
-                          icon:
-                              Icons.pending_actions_outlined,
+                          icon: Icons.pending_actions_outlined,
                           title: 'Solicitudes',
                           subtitle:
                               'Revisá accesos y solicitudes pendientes',
@@ -830,8 +834,7 @@ class _HomePageState extends State<HomePage> {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) =>
-                                    const SelectTournamentPage(),
+                                builder: (_) => const SelectTournamentPage(),
                               ),
                             );
                           },
@@ -851,34 +854,27 @@ class _HomePageState extends State<HomePage> {
                       const SizedBox(height: 14),
                       Container(
                         decoration: BoxDecoration(
-                          borderRadius:
-                              BorderRadius.circular(26),
+                          borderRadius: BorderRadius.circular(26),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black
-                                  .withOpacity(0.08),
+                              color: Colors.black.withOpacity(0.08),
                               blurRadius: 18,
                               offset: const Offset(0, 8),
                             ),
                           ],
                         ),
                         child: ClipRRect(
-                          borderRadius:
-                              BorderRadius.circular(26),
+                          borderRadius: BorderRadius.circular(26),
                           child: Image.network(
-                            ad!['image_url']
-                                    ?.toString() ??
-                                '',
+                            ad!['image_url']?.toString() ?? '',
                             height: 135,
                             width: double.infinity,
                             fit: BoxFit.cover,
-                            errorBuilder:
-                                (_, __, ___) => Container(
+                            errorBuilder: (_, __, ___) => Container(
                               height: 135,
                               alignment: Alignment.center,
-                              color: theme
-                                  .colorScheme
-                                  .surfaceContainerHighest,
+                              color:
+                                  theme.colorScheme.surfaceContainerHighest,
                               child: const Text(
                                 'No se pudo cargar el anuncio',
                               ),
@@ -892,8 +888,7 @@ class _HomePageState extends State<HomePage> {
                     _sectionTitle(
                       context,
                       'Más opciones',
-                      subtitle:
-                          'Gestioná tu experiencia dentro de la app',
+                      subtitle: 'Gestioná tu experiencia dentro de la app',
                     ),
                     const SizedBox(height: 14),
 
@@ -901,14 +896,12 @@ class _HomePageState extends State<HomePage> {
                       context: context,
                       icon: Icons.list_alt_outlined,
                       title: 'Mis torneos',
-                      subtitle:
-                          'Revisá tus torneos activos y tu historial',
+                      subtitle: 'Revisá tus torneos activos y tu historial',
                       onTap: () {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) =>
-                                const MyTournamentsPage(),
+                            builder: (_) => const MyTournamentsPage(),
                           ),
                         );
                       },
@@ -919,19 +912,7 @@ class _HomePageState extends State<HomePage> {
                       icon: Icons.location_city,
                       title: 'Cambiar ciudad',
                       subtitle: widget.selectedCity,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => LocationPage(
-                              selectedCity:
-                                  widget.selectedCity,
-                              onCitySelected:
-                                  widget.onCityChanged,
-                            ),
-                          ),
-                        );
-                      },
+                      onTap: _pickCity,
                     ),
                   ],
                 ),
@@ -969,7 +950,6 @@ class _UpcomingTournamentCard extends StatelessWidget {
       case 'approved':
         return 'Aprobado';
       case 'accepted':
-        return 'Confirmado';
       case 'confirmed':
         return 'Confirmado';
       case 'pending':

@@ -1,3 +1,5 @@
+// IMPORTS IGUAL (no los cambio)
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -22,9 +24,13 @@ class _MatchDetailPageState extends State<MatchDetailPage> {
 
   List<Map<String, dynamic>> players = [];
   final Map<String, int> goals = {};
+
   String? selectedMvp;
   bool isLoading = true;
   bool isSaving = false;
+
+  int homeScore = 0;
+  int awayScore = 0;
 
   @override
   void initState() {
@@ -45,10 +51,7 @@ class _MatchDetailPageState extends State<MatchDetailPage> {
   }
 
   void _openPlayerProfile(String userId) {
-    if (userId.trim().isEmpty) {
-      _showSnackBar('Este jugador no tiene user_id');
-      return;
-    }
+    if (userId.trim().isEmpty) return;
 
     Navigator.push(
       context,
@@ -59,31 +62,35 @@ class _MatchDetailPageState extends State<MatchDetailPage> {
   }
 
   Future<void> _loadPlayers() async {
-    try {
-      final client = Supabase.instance.client;
+    final client = Supabase.instance.client;
 
-      final data = await client
-          .from('tournament_players')
-          .select()
-          .eq('tournament_id', widget.match['tournament_id']);
+    final data = await client
+        .from('tournament_players')
+        .select()
+        .eq('tournament_id', widget.match['tournament_id']);
 
-      final list = List<Map<String, dynamic>>.from(data);
+    final list = List<Map<String, dynamic>>.from(data);
 
-      _safeSetState(() {
-        players = list;
-        goals.clear();
-        for (final p in players) {
-          final userId = (p['user_id'] ?? '').toString();
-          goals[userId] = 0;
-        }
-        isLoading = false;
-      });
-    } catch (e) {
-      _safeSetState(() {
-        isLoading = false;
-      });
-      _showSnackBar('Error cargando jugadores: $e');
-    }
+    _safeSetState(() {
+      players = list;
+      goals.clear();
+
+      for (final p in players) {
+        final userId = (p['user_id'] ?? '').toString();
+        goals[userId] = 0;
+      }
+
+      isLoading = false;
+    });
+  }
+
+  // 🔥 CALCULAR MARCADOR
+  void _calculateScore() {
+    int totalGoals = goals.values.fold(0, (a, b) => a + b);
+
+    // SIMPLE: dividir goles (más adelante lo mejoramos por equipo)
+    homeScore = (totalGoals / 2).floor();
+    awayScore = totalGoals - homeScore;
   }
 
   Future<void> _saveAll() async {
@@ -91,6 +98,8 @@ class _MatchDetailPageState extends State<MatchDetailPage> {
 
     try {
       final client = Supabase.instance.client;
+
+      _calculateScore();
 
       final playersStats = players.map((p) {
         final userId = (p['user_id'] ?? '').toString();
@@ -108,13 +117,14 @@ class _MatchDetailPageState extends State<MatchDetailPage> {
         playersStats: playersStats,
       );
 
+      // 🔥 GUARDAR RESULTADO
       await client.from('matches').update({
+        'home_score': homeScore,
+        'away_score': awayScore,
         'status': 'finished',
       }).eq('id', widget.match['id']);
 
-      if (!mounted) return;
-
-      _showSnackBar('Partido cargado completo');
+      _showSnackBar('Partido guardado correctamente');
       Navigator.pop(context);
     } catch (e) {
       _showSnackBar('Error: $e');
@@ -125,72 +135,76 @@ class _MatchDetailPageState extends State<MatchDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final home = (widget.match['home_team_name'] ?? '').toString();
-    final away = (widget.match['away_team_name'] ?? '').toString();
-    final theme = Theme.of(context);
+    final home = widget.match['home_team_name'];
+    final away = widget.match['away_team_name'];
 
     return Scaffold(
-      appBar: const AppBarWithNotifications(title: 'Cargar stats'),
+      appBar: const AppBarWithNotifications(title: 'Cargar partido'),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                Text(
-                  '$home vs $away',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
+                // 🔥 HEADER CON MARCADOR
+                Column(
+                  children: [
+                    Text(
+                      '$home vs $away',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '$homeScore - $awayScore',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
                 ),
+
                 const SizedBox(height: 20),
+
                 const Text(
                   'Jugadores',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
-                const SizedBox(height: 12),
+
+                const SizedBox(height: 10),
+
                 ...players.map((player) {
-                  final name = (player['player_name'] ?? 'Jugador').toString();
-                  final userId = (player['user_id'] ?? '').toString();
+                  final name = player['player_name'];
+                  final userId = player['user_id'];
 
                   return Card(
                     child: ListTile(
-                      onTap: () => _openPlayerProfile(userId),
-                      leading: const Icon(Icons.person),
                       title: Text(name),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      subtitle: Row(
                         children: [
-                          const SizedBox(height: 6),
-                          Row(
-                            children: [
-                              const Text('Goles: '),
-                              IconButton(
-                                icon: const Icon(Icons.remove),
-                                onPressed: () {
-                                  _safeSetState(() {
-                                    final current = goals[userId] ?? 0;
-                                    goals[userId] = current > 0 ? current - 1 : 0;
-                                  });
-                                },
-                              ),
-                              Text('${goals[userId] ?? 0}'),
-                              IconButton(
-                                icon: const Icon(Icons.add),
-                                onPressed: () {
-                                  _safeSetState(() {
-                                    goals[userId] = (goals[userId] ?? 0) + 1;
-                                  });
-                                },
-                              ),
-                            ],
+                          IconButton(
+                            icon: const Icon(Icons.remove),
+                            onPressed: () {
+                              _safeSetState(() {
+                                final current = goals[userId] ?? 0;
+                                goals[userId] =
+                                    current > 0 ? current - 1 : 0;
+                                _calculateScore();
+                              });
+                            },
                           ),
-                          Text(
-                            'Ver perfil',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.primary,
-                              fontWeight: FontWeight.w700,
-                            ),
+                          Text('${goals[userId] ?? 0}'),
+                          IconButton(
+                            icon: const Icon(Icons.add),
+                            onPressed: () {
+                              _safeSetState(() {
+                                goals[userId] =
+                                    (goals[userId] ?? 0) + 1;
+                                _calculateScore();
+                              });
+                            },
                           ),
                         ],
                       ),
@@ -203,13 +217,18 @@ class _MatchDetailPageState extends State<MatchDetailPage> {
                           });
                         },
                       ),
+                      onTap: () => _openPlayerProfile(userId),
                     ),
                   );
                 }),
+
                 const SizedBox(height: 20),
+
                 ElevatedButton(
                   onPressed: isSaving ? null : _saveAll,
-                  child: Text(isSaving ? 'Guardando...' : 'Guardar todo'),
+                  child: Text(
+                    isSaving ? 'Guardando...' : 'Finalizar partido',
+                  ),
                 ),
               ],
             ),

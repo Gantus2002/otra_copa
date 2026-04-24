@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../location/presentation/pages/location_page.dart';
 import '../../../tournaments/data/tournament_remote_service.dart';
 
 class CreateTournamentPage extends StatefulWidget {
@@ -143,8 +144,30 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
     });
   }
 
+  Future<void> _pickLocation() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LocationPage(
+          selectedCity: locationController.text,
+        ),
+      ),
+    );
+
+    if (result == null || result is! String) return;
+
+    _safeSetState(() {
+      locationController.text = result;
+    });
+  }
+
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
+
+    if (locationController.text.trim().isEmpty) {
+      _showSnackBar('Seleccioná una ubicación.');
+      return;
+    }
 
     if (!acceptedTerms) {
       _showSnackBar('Tenés que aceptar los términos y condiciones.');
@@ -200,8 +223,8 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
 
       _showSnackBar(
         tournamentType == 'Por invitación'
-            ? 'Torneo guardado. Código: $code'
-            : 'Torneo guardado correctamente.',
+            ? 'Torneo creado. Código: $code'
+            : 'Torneo creado correctamente.',
       );
     } catch (e) {
       _showSnackBar('Error al guardar torneo: $e');
@@ -250,13 +273,20 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
     return null;
   }
 
-  InputDecoration _inputDecoration(String label, {String? hint}) {
+  InputDecoration _inputDecoration(
+    String label, {
+    String? hint,
+    IconData? prefixIcon,
+    Widget? suffixIcon,
+  }) {
     return InputDecoration(
       labelText: label,
       hintText: hint,
+      prefixIcon: prefixIcon == null ? null : Icon(prefixIcon),
+      suffixIcon: suffixIcon,
       filled: true,
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
         borderSide: BorderSide.none,
       ),
     );
@@ -291,16 +321,16 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
 
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(26),
         color: theme.colorScheme.surface,
         border: Border.all(
           color: theme.colorScheme.outlineVariant.withOpacity(0.22),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
+            color: Colors.black.withOpacity(0.045),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
@@ -319,55 +349,95 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
     final isSelected = joinMode == value;
 
     return InkWell(
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(20),
       onTap: () {
         _safeSetState(() {
           joinMode = value;
         });
       },
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
         width: double.infinity,
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(20),
           color: isSelected
-              ? theme.colorScheme.primaryContainer.withOpacity(0.8)
+              ? theme.colorScheme.primaryContainer.withOpacity(0.85)
               : theme.colorScheme.surfaceContainerHighest.withOpacity(0.55),
           border: Border.all(
             color: isSelected
                 ? theme.colorScheme.primary
                 : theme.colorScheme.outlineVariant.withOpacity(0.22),
-            width: isSelected ? 1.4 : 1,
+            width: isSelected ? 1.5 : 1,
           ),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Icon(
-              icon,
-              color: isSelected
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.onSurfaceVariant,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w800,
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? theme.colorScheme.primary.withOpacity(0.14)
+                    : theme.colorScheme.surface,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(
+                icon,
+                color: isSelected
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant,
               ),
             ),
-            const SizedBox(height: 6),
-            Text(
-              subtitle,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                height: 1.3,
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
               ),
             ),
+            if (isSelected)
+              Icon(
+                Icons.check_circle,
+                color: theme.colorScheme.primary,
+              ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _ruleSwitch({
+    required bool value,
+    required ValueChanged<bool> onChanged,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return SwitchListTile(
+      value: value,
+      onChanged: onChanged,
+      secondary: Icon(icon),
+      title: Text(
+        title,
+        style: const TextStyle(fontWeight: FontWeight.w700),
+      ),
+      subtitle: Text(subtitle),
     );
   }
 
@@ -388,9 +458,9 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(20),
+                      padding: const EdgeInsets.all(22),
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(26),
+                        borderRadius: BorderRadius.circular(28),
                         gradient: LinearGradient(
                           colors: [
                             theme.colorScheme.primary.withOpacity(0.14),
@@ -405,11 +475,10 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                         ),
                       ),
                       child: Column(
-                        mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Configurá tu torneo',
+                            'Diseñá un torneo increíble',
                             style: theme.textTheme.headlineSmall?.copyWith(
                               fontWeight: FontWeight.w800,
                               letterSpacing: -0.3,
@@ -417,7 +486,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Completá los datos principales para publicar un torneo.',
+                            'Configurá modalidad, reglas, costos y visibilidad con una experiencia mucho más pro.',
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                               height: 1.35,
@@ -431,11 +500,11 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                               child: Row(
                                 children: [
                                   Container(
-                                    width: 42,
-                                    height: 42,
+                                    width: 46,
+                                    height: 46,
                                     decoration: BoxDecoration(
                                       color: theme.colorScheme.primaryContainer,
-                                      borderRadius: BorderRadius.circular(14),
+                                      borderRadius: BorderRadius.circular(16),
                                     ),
                                     child: Icon(
                                       Icons.verified_user_outlined,
@@ -446,7 +515,6 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: Column(
-                                      mainAxisSize: MainAxisSize.min,
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
@@ -482,7 +550,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                     _sectionTitle(
                       context,
                       'Información principal',
-                      'Los datos básicos que van a ver los jugadores',
+                      'Los datos que primero van a ver los jugadores',
                     ),
                     const SizedBox(height: 14),
                     _glassCard(
@@ -490,29 +558,54 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                       Padding(
                         padding: const EdgeInsets.all(16),
                         child: Column(
-                          mainAxisSize: MainAxisSize.min,
                           children: [
                             TextFormField(
                               controller: nameController,
-                              decoration:
-                                  _inputDecoration('Nombre del torneo'),
+                              decoration: _inputDecoration(
+                                'Nombre del torneo',
+                                prefixIcon: Icons.emoji_events_outlined,
+                                hint: 'Ej: Copa Relámpago Centro 2026',
+                              ),
                               validator: (value) => _requiredValidator(
                                 value,
                                 'el nombre del torneo',
                               ),
                             ),
                             const SizedBox(height: 12),
-                            TextFormField(
-                              controller: locationController,
-                              decoration: _inputDecoration('Ubicación'),
-                              validator: (value) =>
-                                  _requiredValidator(value, 'la ubicación'),
+                            InkWell(
+                              onTap: _pickLocation,
+                              borderRadius: BorderRadius.circular(20),
+                              child: InputDecorator(
+                                decoration: _inputDecoration(
+                                  'Ubicación',
+                                  prefixIcon: Icons.location_on_outlined,
+                                  suffixIcon: const Icon(
+                                    Icons.arrow_forward_ios,
+                                    size: 16,
+                                  ),
+                                ),
+                                child: Text(
+                                  locationController.text.isEmpty
+                                      ? 'Seleccionar ubicación'
+                                      : locationController.text,
+                                  style: TextStyle(
+                                    color: locationController.text.isEmpty
+                                        ? theme.colorScheme.onSurfaceVariant
+                                        : theme.colorScheme.onSurface,
+                                    fontWeight: locationController.text.isEmpty
+                                        ? FontWeight.w400
+                                        : FontWeight.w600,
+                                  ),
+                                ),
+                              ),
                             ),
                             const SizedBox(height: 12),
                             DropdownButtonFormField<String>(
                               initialValue: tournamentType,
-                              decoration:
-                                  _inputDecoration('Tipo de torneo'),
+                              decoration: _inputDecoration(
+                                'Tipo de torneo',
+                                prefixIcon: Icons.grid_view_rounded,
+                              ),
                               items: const [
                                 DropdownMenuItem(
                                   value: 'Liga',
@@ -540,8 +633,10 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                             const SizedBox(height: 12),
                             DropdownButtonFormField<String>(
                               initialValue: gameMode,
-                              decoration:
-                                  _inputDecoration('Modalidad de juego'),
+                              decoration: _inputDecoration(
+                                'Modalidad de juego',
+                                prefixIcon: Icons.sports_soccer_outlined,
+                              ),
                               items: const [
                                 DropdownMenuItem(
                                   value: '5 vs 5',
@@ -573,7 +668,10 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                             const SizedBox(height: 12),
                             DropdownButtonFormField<String>(
                               initialValue: category,
-                              decoration: _inputDecoration('Categoría'),
+                              decoration: _inputDecoration(
+                                'Categoría',
+                                prefixIcon: Icons.shield_outlined,
+                              ),
                               items: const [
                                 DropdownMenuItem(
                                   value: 'Masculino',
@@ -601,10 +699,8 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                               onTap: _pickStartDate,
                               decoration: _inputDecoration(
                                 'Fecha de inicio',
+                                prefixIcon: Icons.calendar_month_outlined,
                                 hint: 'Seleccionar fecha',
-                              ).copyWith(
-                                suffixIcon:
-                                    const Icon(Icons.calendar_month_outlined),
                               ),
                               validator: (value) => _requiredValidator(
                                 value,
@@ -615,8 +711,11 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                             TextFormField(
                               controller: teamsController,
                               keyboardType: TextInputType.number,
-                              decoration:
-                                  _inputDecoration('Cantidad de equipos'),
+                              decoration: _inputDecoration(
+                                'Cantidad de equipos',
+                                prefixIcon: Icons.groups_2_outlined,
+                                hint: 'Ej: 8',
+                              ),
                               validator: (value) => _requiredValidator(
                                 value,
                                 'la cantidad de equipos',
@@ -631,7 +730,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                     _sectionTitle(
                       context,
                       'Modo de inscripción',
-                      'Definí si entran jugadores, equipos o ambos',
+                      'Definí quién puede entrar al torneo',
                     ),
                     const SizedBox(height: 14),
                     _glassCard(
@@ -639,7 +738,6 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                       Padding(
                         padding: const EdgeInsets.all(16),
                         child: Column(
-                          mainAxisSize: MainAxisSize.min,
                           children: [
                             _joinModeTile(
                               context: context,
@@ -674,7 +772,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                     _sectionTitle(
                       context,
                       'Costos y premios',
-                      'Mostrá claramente cuánto cuesta inscribirse',
+                      'Mostrá los valores de inscripción de forma clara',
                     ),
                     const SizedBox(height: 14),
                     _glassCard(
@@ -682,13 +780,13 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                       Padding(
                         padding: const EdgeInsets.all(16),
                         child: Column(
-                          mainAxisSize: MainAxisSize.min,
                           children: [
                             TextFormField(
                               controller: individualCostController,
                               keyboardType: TextInputType.number,
                               decoration: _inputDecoration(
-                                'Costo de inscripción individual',
+                                'Costo individual',
+                                prefixIcon: Icons.person_pin_circle_outlined,
                                 hint: 'Ej: 50000',
                               ),
                             ),
@@ -697,7 +795,8 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                               controller: teamCostController,
                               keyboardType: TextInputType.number,
                               decoration: _inputDecoration(
-                                'Costo de inscripción por equipo',
+                                'Costo por equipo',
+                                prefixIcon: Icons.groups_outlined,
                                 hint: 'Ej: 350000',
                               ),
                             ),
@@ -706,6 +805,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                               controller: prizesController,
                               decoration: _inputDecoration(
                                 'Premios',
+                                prefixIcon: Icons.workspace_premium_outlined,
                                 hint: 'Ej: trofeo + efectivo + medallas',
                               ),
                               validator: (value) =>
@@ -720,7 +820,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                     _sectionTitle(
                       context,
                       'Configuración especial',
-                      'Opciones avanzadas y visibilidad del torneo',
+                      'Visibilidad, verificación y tipo de publicación',
                     ),
                     const SizedBox(height: 14),
                     _glassCard(
@@ -734,6 +834,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                                 });
                               }
                             : null,
+                        secondary: const Icon(Icons.verified_outlined),
                         title: const Text(
                           'Torneo oficial',
                           style: TextStyle(fontWeight: FontWeight.w800),
@@ -746,47 +847,54 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                     _sectionTitle(
                       context,
                       'Reglas del torneo',
-                      'Definí las condiciones principales del partido',
+                      'Personalizá cómo se juega y cómo se resuelve',
                     ),
                     const SizedBox(height: 14),
                     _glassCard(
                       context,
                       Column(
-                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          SwitchListTile(
+                          _ruleSwitch(
                             value: hasReferees,
                             onChanged: (value) {
                               _safeSetState(() {
                                 hasReferees = value;
                               });
                             },
-                            title: const Text('¿Con árbitros?'),
+                            icon: Icons.gavel_outlined,
+                            title: 'Con árbitros',
+                            subtitle: 'El torneo contará con arbitraje',
                           ),
-                          SwitchListTile(
+                          _ruleSwitch(
                             value: hasOffside,
                             onChanged: (value) {
                               _safeSetState(() {
                                 hasOffside = value;
                               });
                             },
-                            title: const Text('¿Se aplica offside?'),
+                            icon: Icons.flag_outlined,
+                            title: 'Aplicar offside',
+                            subtitle: 'Se cobrará posición adelantada',
                           ),
-                          SwitchListTile(
+                          _ruleSwitch(
                             value: hasCardSanctions,
                             onChanged: (value) {
                               _safeSetState(() {
                                 hasCardSanctions = value;
                               });
                             },
-                            title: const Text('¿Sanciones por tarjetas?'),
+                            icon: Icons.style_outlined,
+                            title: 'Sanciones por tarjetas',
+                            subtitle: 'Habrá amonestaciones y expulsiones',
                           ),
                           Padding(
                             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                             child: DropdownButtonFormField<String>(
                               initialValue: duration,
-                              decoration:
-                                  _inputDecoration('Duración del partido'),
+                              decoration: _inputDecoration(
+                                'Duración del partido',
+                                prefixIcon: Icons.timer_outlined,
+                              ),
                               items: const [
                                 DropdownMenuItem(
                                   value: '20 minutos',
@@ -817,8 +925,10 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                             child: DropdownButtonFormField<String>(
                               initialValue: tieBreaker,
-                              decoration:
-                                  _inputDecoration('En caso de empate'),
+                              decoration: _inputDecoration(
+                                'Desempate',
+                                prefixIcon: Icons.sports_score_outlined,
+                              ),
                               items: const [
                                 DropdownMenuItem(
                                   value: 'Gol de oro',
@@ -855,7 +965,7 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                           style: TextStyle(fontWeight: FontWeight.w700),
                         ),
                         subtitle: const Text(
-                          'Confirmo que la información cargada del torneo es correcta.',
+                          'Confirmo que la información del torneo es correcta y válida.',
                         ),
                         controlAffinity: ListTileControlAffinity.leading,
                       ),
@@ -870,6 +980,9 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                         label: Text(
                           isLoading ? 'Guardando...' : 'Crear torneo',
                         ),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
                       ),
                     ),
 
@@ -883,11 +996,11 @@ class _CreateTournamentPageState extends State<CreateTournamentPage> {
                           child: Row(
                             children: [
                               Container(
-                                width: 42,
-                                height: 42,
+                                width: 46,
+                                height: 46,
                                 decoration: BoxDecoration(
                                   color: theme.colorScheme.primaryContainer,
-                                  borderRadius: BorderRadius.circular(14),
+                                  borderRadius: BorderRadius.circular(16),
                                 ),
                                 child: Icon(
                                   Icons.qr_code_2,

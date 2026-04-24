@@ -3,16 +3,18 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../../core/widgets/app_bar_with_notifications.dart';
 import '../../../admin/presentation/pages/admin_dashboard_page.dart';
 import '../../../admin/presentation/pages/admin_reservations_page.dart';
 import '../../../auth/data/auth_service.dart';
-import '../../../../core/widgets/app_bar_with_notifications.dart';
 import '../../../player/data/player_review_service.dart';
 import '../../../player/data/player_stats_service.dart';
 import '../../../player/presentation/pages/player_search_page.dart';
+import '../../../teams/presentation/pages/my_team_invitations_page.dart';
 import '../../../teams/presentation/pages/my_teams_page.dart';
 import '../../../venue/presentation/pages/venue_dashboard_page.dart';
 
@@ -85,9 +87,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final user = client.auth.currentUser;
 
     if (user == null) {
-      _safeSetState(() {
-        isLoading = false;
-      });
+      _safeSetState(() => isLoading = false);
       return;
     }
 
@@ -159,19 +159,42 @@ class _ProfilePageState extends State<ProfilePage> {
     try {
       final picked = await _picker.pickImage(
         source: ImageSource.gallery,
-        imageQuality: 85,
+        imageQuality: 95,
       );
 
       if (picked == null) return;
 
-      _safeSetState(() {
-        isUploadingAvatar = true;
-      });
+      final cropped = await ImageCropper().cropImage(
+        sourcePath: picked.path,
+        compressFormat: ImageCompressFormat.jpg,
+        compressQuality: 92,
+        aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'Ajustar foto de perfil',
+            toolbarColor: const Color(0xFF103B52),
+            toolbarWidgetColor: Colors.white,
+            activeControlsWidgetColor: const Color(0xFF1EC8B0),
+            initAspectRatio: CropAspectRatioPreset.square,
+            lockAspectRatio: true,
+            hideBottomControls: false,
+            cropStyle: CropStyle.circle,
+          ),
+          IOSUiSettings(
+            title: 'Ajustar foto de perfil',
+            aspectRatioLockEnabled: true,
+            resetAspectRatioEnabled: false,
+            cropStyle: CropStyle.circle,
+          ),
+        ],
+      );
 
-      final file = File(picked.path);
-      final fileExt = picked.path.split('.').last.toLowerCase();
-      final fileName =
-          '${user.id}_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
+      if (cropped == null) return;
+
+      _safeSetState(() => isUploadingAvatar = true);
+
+      final file = File(cropped.path);
+      final fileName = '${user.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
 
       await Supabase.instance.client.storage.from('profile-images').upload(
             fileName,
@@ -187,17 +210,12 @@ class _ProfilePageState extends State<ProfilePage> {
           .from('profiles')
           .update({'avatar_url': publicUrl}).eq('id', user.id);
 
-      _safeSetState(() {
-        avatarUrl = publicUrl;
-      });
-
+      _safeSetState(() => avatarUrl = publicUrl);
       _showSnackBar('Foto de perfil actualizada');
     } catch (e) {
       _showSnackBar('Error subiendo foto: $e');
     } finally {
-      _safeSetState(() {
-        isUploadingAvatar = false;
-      });
+      _safeSetState(() => isUploadingAvatar = false);
     }
   }
 
@@ -208,9 +226,7 @@ class _ProfilePageState extends State<ProfilePage> {
     Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
   }
 
-  String _formatScore(double value) {
-    return value.toStringAsFixed(1);
-  }
+  String _formatScore(double value) => value.toStringAsFixed(1);
 
   String _roleLabel() {
     switch (role) {
@@ -244,27 +260,43 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   int _calculateOverall() {
+    final hasStats = totalGoals > 0 || totalMatches > 0 || totalMvp > 0;
+    final hasReviews = reviews.isNotEmpty;
+
+    if (!hasStats && !hasReviews) return 0;
+
     final attackScore = math.min(99.0, totalGoals * 2.4 + totalMvp * 4.5);
     final activityScore = math.min(99.0, totalMatches * 1.8 + stats.length * 3);
-    final reviewScore = reviews.isEmpty
-        ? 50.0
-        : ((avgPunctuality + avgBehavior + avgCommitment) / 3) * 20.0;
+    final reviewScore = hasReviews
+        ? ((avgPunctuality + avgBehavior + avgCommitment) / 3) * 20.0
+        : 0.0;
 
     final overall =
         (attackScore * 0.40) + (activityScore * 0.35) + (reviewScore * 0.25);
 
-    return overall.clamp(50, 99).round();
+    return overall.clamp(0, 99).round();
   }
 
   String _countryFlag() {
+    final text = '${email.toLowerCase()} ${publicCode.toLowerCase()}';
+
+    if (text.contains('arg')) return '🇦🇷';
+    if (text.contains('bra')) return '🇧🇷';
+    if (text.contains('uru')) return '🇺🇾';
+    if (text.contains('chi')) return '🇨🇱';
     return '🇵🇾';
+  }
+
+  double _reputationAverage() {
+    if (reviews.isEmpty) return 0;
+    return (avgPunctuality + avgBehavior + avgCommitment) / 3;
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final recentReviews = reviews.take(3).toList();
     final overall = _calculateOverall();
+    final reputationAvg = _reputationAverage();
 
     return Scaffold(
       appBar: const AppBarWithNotifications(title: 'Mi perfil'),
@@ -274,176 +306,20 @@ class _ProfilePageState extends State<ProfilePage> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                 children: [
-                  _FifaStyleProfileCard(
+                  _ModernProfileHeader(
                     fullName: fullName,
                     roleLabel: _roleLabel(),
+                    email: email,
                     flag: _countryFlag(),
-                    avatarUrl: avatarUrl,
                     overall: overall,
-                    totalMatches: totalMatches,
-                    totalGoals: totalGoals,
-                    totalMvp: totalMvp,
+                    avatarUrl: avatarUrl,
+                    publicCode: publicCode,
                     isUploadingAvatar: isUploadingAvatar,
                     onAvatarTap: isUploadingAvatar ? null : _pickAndUploadAvatar,
-                    publicCode: publicCode,
                     onCopyCode: _copyCode,
+                    roleIcon: _roleIcon(),
                   ),
                   const SizedBox(height: 18),
-                  _GlassCard(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                width: 42,
-                                height: 42,
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.primaryContainer,
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                                child: Icon(
-                                  _roleIcon(),
-                                  color: theme.colorScheme.onPrimaryContainer,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Perfil competitivo',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      email,
-                                      style: theme.textTheme.bodyMedium?.copyWith(
-                                        color: theme.colorScheme.onSurfaceVariant,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 10),
-                                    Wrap(
-                                      spacing: 10,
-                                      runSpacing: 10,
-                                      children: [
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 10,
-                                            vertical: 8,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: theme.colorScheme.secondaryContainer,
-                                            borderRadius: BorderRadius.circular(999),
-                                          ),
-                                          child: Text(
-                                            _roleLabel(),
-                                            style: TextStyle(
-                                              color: theme.colorScheme.onSecondaryContainer,
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ),
-                                        InkWell(
-                                          borderRadius: BorderRadius.circular(14),
-                                          onTap: () {
-                                            Navigator.push(
-                                              context,
-                                              MaterialPageRoute(
-                                                builder: (_) =>
-                                                    const PlayerSearchPage(),
-                                              ),
-                                            );
-                                          },
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                              vertical: 10,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: Colors.blueAccent,
-                                              borderRadius:
-                                                  BorderRadius.circular(14),
-                                            ),
-                                            child: const Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Icon(
-                                                  Icons.search,
-                                                  color: Colors.white,
-                                                  size: 18,
-                                                ),
-                                                SizedBox(width: 6),
-                                                Text(
-                                                  'Buscar jugadores',
-                                                  style: TextStyle(
-                                                    color: Colors.white,
-                                                    fontWeight: FontWeight.w700,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                        InkWell(
-                                          borderRadius: BorderRadius.circular(14),
-                                          onTap: () {
-                                            Navigator.push(
-                                              context,
-                                              MaterialPageRoute(
-                                                builder: (_) =>
-                                                    const MyTeamsPage(),
-                                              ),
-                                            );
-                                          },
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                              vertical: 10,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: Colors.teal,
-                                              borderRadius:
-                                                  BorderRadius.circular(14),
-                                            ),
-                                            child: const Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Icon(
-                                                  Icons.groups_2_outlined,
-                                                  color: Colors.white,
-                                                  size: 18,
-                                                ),
-                                                SizedBox(width: 6),
-                                                Text(
-                                                  'Mis equipos',
-                                                  style: TextStyle(
-                                                    color: Colors.white,
-                                                    fontWeight: FontWeight.w700,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
                   _GlassCard(
                     child: SwitchListTile(
                       value: widget.isDarkMode,
@@ -458,22 +334,45 @@ class _ProfilePageState extends State<ProfilePage> {
                       subtitle: Text(
                         widget.isDarkMode ? 'Activado' : 'Desactivado',
                       ),
-                      secondary: Container(
-                        width: 42,
-                        height: 42,
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.primaryContainer,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Icon(
-                          Icons.dark_mode_outlined,
-                          color: theme.colorScheme.onPrimaryContainer,
-                        ),
+                      secondary: const _SmallIconBox(
+                        icon: Icons.dark_mode_outlined,
                       ),
                     ),
                   ),
+                  const SizedBox(height: 18),
+                  const _SectionHeader(
+                    title: 'Accesos de perfil',
+                    subtitle: 'Tu parte social, competitiva y de equipos',
+                  ),
+                  const SizedBox(height: 14),
+                  _ProfileAccessGrid(
+                    onSearchPlayers: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const PlayerSearchPage(),
+                        ),
+                      );
+                    },
+                    onMyTeams: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const MyTeamsPage(),
+                        ),
+                      );
+                    },
+                    onInvitations: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const MyTeamInvitationsPage(),
+                        ),
+                      );
+                    },
+                  ),
                   const SizedBox(height: 26),
-                  _SectionHeader(
+                  const _SectionHeader(
                     title: 'Resumen general',
                     subtitle: 'Tus números principales dentro de la app',
                   ),
@@ -518,7 +417,44 @@ class _ProfilePageState extends State<ProfilePage> {
                     ],
                   ),
                   const SizedBox(height: 26),
-                  _SectionHeader(
+                  const _SectionHeader(
+                    title: 'Perfil competitivo',
+                    subtitle: 'Tu nivel general y rendimiento deportivo',
+                  ),
+                  const SizedBox(height: 14),
+                  _GlassCard(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        children: [
+                          _CompetitiveMetricRow(
+                            label: 'Nivel general',
+                            valueText:
+                                overall == 0 ? 'Sin ranking' : '$overall GRL',
+                            progress: overall == 0 ? 0 : overall / 100,
+                          ),
+                          const SizedBox(height: 14),
+                          _CompetitiveMetricRow(
+                            label: 'Promedio reputación',
+                            valueText: reviews.isEmpty
+                                ? 'Sin datos'
+                                : '${reputationAvg.toStringAsFixed(1)}/5',
+                            progress: reviews.isEmpty ? 0 : reputationAvg / 5,
+                          ),
+                          const SizedBox(height: 14),
+                          _CompetitiveMetricRow(
+                            label: 'Impacto ofensivo',
+                            valueText: '$totalGoals goles',
+                            progress: totalGoals == 0
+                                ? 0
+                                : (math.min(totalGoals.toDouble(), 20) / 20),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 26),
+                  const _SectionHeader(
                     title: 'Reputación',
                     subtitle: 'Cómo te valoran otros jugadores y organizadores',
                   ),
@@ -567,10 +503,34 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 16),
+                    _GlassCard(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          children: [
+                            _RatingBarRow(
+                              label: 'Puntualidad',
+                              value: avgPunctuality,
+                            ),
+                            const SizedBox(height: 12),
+                            _RatingBarRow(
+                              label: 'Conducta',
+                              value: avgBehavior,
+                            ),
+                            const SizedBox(height: 12),
+                            _RatingBarRow(
+                              label: 'Compromiso',
+                              value: avgCommitment,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ],
                   const SizedBox(height: 26),
-                  _SectionHeader(
-                    title: 'Historial por torneo',
+                  const _SectionHeader(
+                    title: 'Estado por torneo',
                     subtitle: 'Tus estadísticas desglosadas por competencia',
                   ),
                   const SizedBox(height: 14),
@@ -580,45 +540,10 @@ class _ProfilePageState extends State<ProfilePage> {
                     )
                   else
                     ...stats.map(
-                      (stat) => _GlassCard(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                stat['tournament_name']?.toString() ?? 'Torneo',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Wrap(
-                                spacing: 10,
-                                runSpacing: 10,
-                                children: [
-                                  _MiniBadge(
-                                    label: 'Partidos',
-                                    value: '${stat['matches_played'] ?? 0}',
-                                  ),
-                                  _MiniBadge(
-                                    label: 'Goles',
-                                    value: '${stat['goals'] ?? 0}',
-                                  ),
-                                  _MiniBadge(
-                                    label: 'MVP',
-                                    value: '${stat['mvp'] ?? 0}',
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                      (stat) => _TournamentStatusCard(stat: stat),
                     ),
                   const SizedBox(height: 26),
-                  _SectionHeader(
+                  const _SectionHeader(
                     title: 'Comentarios recientes',
                     subtitle: 'Lo último que dejaron sobre tu desempeño',
                   ),
@@ -629,72 +554,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     )
                   else
                     ...recentReviews.map(
-                      (review) => _GlassCard(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _ReviewerAvatar(
-                                name: (review['reviewer_name'] ?? 'Jugador')
-                                    .toString(),
-                                avatarUrl:
-                                    review['reviewer_avatar_url']?.toString(),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      (review['reviewer_name'] ?? 'Jugador')
-                                          .toString(),
-                                      style:
-                                          theme.textTheme.titleSmall?.copyWith(
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Wrap(
-                                      spacing: 8,
-                                      runSpacing: 8,
-                                      children: [
-                                        _MiniBadge(
-                                          label: 'Punt.',
-                                          value: '${review['punctuality'] ?? 0}',
-                                        ),
-                                        _MiniBadge(
-                                          label: 'Cond.',
-                                          value: '${review['behavior'] ?? 0}',
-                                        ),
-                                        _MiniBadge(
-                                          label: 'Comp.',
-                                          value: '${review['commitment'] ?? 0}',
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 10),
-                                    Text(
-                                      (review['comment'] == null ||
-                                              review['comment']
-                                                  .toString()
-                                                  .trim()
-                                                  .isEmpty)
-                                          ? 'Sin comentario'
-                                          : review['comment'].toString(),
-                                      style:
-                                          theme.textTheme.bodyLarge?.copyWith(
-                                        height: 1.35,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                      (review) => _CommentCard(review: review),
                     ),
                   const SizedBox(height: 22),
                   _ActionTile(
@@ -707,6 +567,21 @@ class _ProfilePageState extends State<ProfilePage> {
                         context,
                         MaterialPageRoute(
                           builder: (_) => const MyTeamsPage(),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  _ActionTile(
+                    icon: Icons.mark_email_unread_outlined,
+                    title: 'Invitaciones de equipo',
+                    subtitle:
+                        'Aceptá o rechazá invitaciones a equipos persistentes',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const MyTeamInvitationsPage(),
                         ),
                       );
                     },
@@ -746,7 +621,8 @@ class _ProfilePageState extends State<ProfilePage> {
                     _ActionTile(
                       icon: Icons.stadium_outlined,
                       title: 'Panel de cancha',
-                      subtitle: 'Gestionar complejo, canchas, horarios y reservas',
+                      subtitle:
+                          'Gestionar complejo, canchas, horarios y reservas',
                       onTap: () {
                         Navigator.push(
                           context,
@@ -772,56 +648,55 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 }
 
-class _FifaStyleProfileCard extends StatelessWidget {
+class _ModernProfileHeader extends StatelessWidget {
   final String fullName;
   final String roleLabel;
+  final String email;
   final String flag;
-  final String? avatarUrl;
   final int overall;
-  final int totalMatches;
-  final int totalGoals;
-  final int totalMvp;
+  final String? avatarUrl;
+  final String publicCode;
   final bool isUploadingAvatar;
   final VoidCallback? onAvatarTap;
-  final String publicCode;
   final Future<void> Function() onCopyCode;
+  final IconData roleIcon;
 
-  const _FifaStyleProfileCard({
+  const _ModernProfileHeader({
     required this.fullName,
     required this.roleLabel,
+    required this.email,
     required this.flag,
-    required this.avatarUrl,
     required this.overall,
-    required this.totalMatches,
-    required this.totalGoals,
-    required this.totalMvp,
+    required this.avatarUrl,
+    required this.publicCode,
     required this.isUploadingAvatar,
     required this.onAvatarTap,
-    required this.publicCode,
     required this.onCopyCode,
+    required this.roleIcon,
   });
 
   @override
   Widget build(BuildContext context) {
+    final overallText = overall == 0 ? '--' : '$overall';
+
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 2),
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 22),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(26),
+        borderRadius: BorderRadius.circular(28),
         gradient: const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
           colors: [
-            Color(0xFF183A4F),
-            Color(0xFF224B63),
-            Color(0xFF2C5C73),
+            Color(0xFF0F3144),
+            Color(0xFF174B61),
+            Color(0xFF1D6A77),
           ],
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.18),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
+            color: Colors.black.withOpacity(0.16),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
@@ -831,21 +706,21 @@ class _FifaStyleProfileCard extends StatelessWidget {
             children: [
               Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
+                  horizontal: 14,
+                  vertical: 10,
                 ),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFC52E),
-                  borderRadius: BorderRadius.circular(14),
+                  color: const Color(0xFFFFC930),
+                  borderRadius: BorderRadius.circular(18),
                 ),
                 child: Column(
                   children: [
                     Text(
-                      '$overall',
+                      overallText,
                       style: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 22,
                         color: Colors.black,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
                         height: 1,
                       ),
                     ),
@@ -853,9 +728,9 @@ class _FifaStyleProfileCard extends StatelessWidget {
                     const Text(
                       'GRL',
                       style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
                         color: Colors.black,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                   ],
@@ -867,180 +742,597 @@ class _FifaStyleProfileCard extends StatelessWidget {
                 height: 44,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withOpacity(0.1),
+                  color: Colors.white.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(16),
                 ),
                 child: Text(
                   flag,
-                  style: const TextStyle(fontSize: 20),
+                  style: const TextStyle(fontSize: 22),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 18),
-          GestureDetector(
-            onTap: onAvatarTap,
-            child: Stack(
-              children: [
-                Container(
-                  width: 100,
-                  height: 100,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white24, width: 2),
-                  ),
-                  child: ClipOval(
-                    child: avatarUrl != null && avatarUrl!.isNotEmpty
-                        ? Image.network(
-                            avatarUrl!,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Center(
-                              child: Text(
-                                fullName.isNotEmpty
-                                    ? fullName[0].toUpperCase()
-                                    : 'J',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 34,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          )
-                        : Center(
-                            child: Text(
-                              fullName.isNotEmpty
-                                  ? fullName[0].toUpperCase()
-                                  : 'J',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 34,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                  ),
-                ),
-                Positioned(
-                  bottom: 0,
-                  right: 0,
-                  child: Container(
-                    width: 28,
-                    height: 28,
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              GestureDetector(
+                onTap: onAvatarTap,
+                child: Stack(
+                  children: [
+                    Container(
+                      width: 96,
+                      height: 96,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white24, width: 2),
+                        color: Colors.white.withOpacity(0.08),
+                      ),
+                      child: ClipOval(
+                        child: avatarUrl != null && avatarUrl!.isNotEmpty
+                            ? Image.network(
+                                avatarUrl!,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) =>
+                                    _InitialAvatarText(value: fullName),
+                              )
+                            : _InitialAvatarText(value: fullName),
+                      ),
                     ),
-                    child: isUploadingAvatar
-                        ? const Padding(
-                            padding: EdgeInsets.all(6),
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(
-                            Icons.edit,
-                            size: 14,
-                            color: Colors.black,
-                          ),
-                  ),
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        width: 30,
+                        height: 30,
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                        ),
+                        child: isUploadingAvatar
+                            ? const Padding(
+                                padding: EdgeInsets.all(6),
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(
+                                Icons.photo_camera_outlined,
+                                size: 15,
+                                color: Colors.black,
+                              ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            fullName,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-              fontSize: 18,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            roleLabel,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 13,
-            ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      fullName,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 21,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      email,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.84),
+                        height: 1.25,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _ProfileBadge(
+                      icon: roleIcon,
+                      label: roleLabel,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
           if (publicCode.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              alignment: WrapAlignment.center,
-              crossAxisAlignment: WrapCrossAlignment.center,
+            const SizedBox(height: 16),
+            Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.10),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    publicCode,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                InkWell(
-                  borderRadius: BorderRadius.circular(999),
-                  onTap: onCopyCode,
+                Expanded(
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
+                      horizontal: 14,
+                      vertical: 12,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(999),
+                      color: Colors.white.withOpacity(0.10),
+                      borderRadius: BorderRadius.circular(16),
                     ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
+                    child: Row(
                       children: [
-                        Icon(
-                          Icons.copy,
-                          size: 16,
+                        const Icon(
+                          Icons.qr_code_2_outlined,
                           color: Colors.white,
+                          size: 18,
                         ),
-                        SizedBox(width: 6),
-                        Text(
-                          'Copiar código',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            publicCode,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],
                     ),
                   ),
                 ),
+                const SizedBox(width: 10),
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 14,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  onPressed: onCopyCode,
+                  icon: const Icon(Icons.copy, size: 16),
+                  label: const Text('Copiar'),
+                ),
               ],
             ),
           ],
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(16),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileAccessGrid extends StatelessWidget {
+  final VoidCallback onSearchPlayers;
+  final VoidCallback onMyTeams;
+  final VoidCallback onInvitations;
+
+  const _ProfileAccessGrid({
+    required this.onSearchPlayers,
+    required this.onMyTeams,
+    required this.onInvitations,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _ProfileAccessCard(
+          icon: Icons.search,
+          title: 'Buscar jugadores',
+          subtitle: 'Encontrá jugadores por nombre o código',
+          color: const Color(0xFF246BFD),
+          large: true,
+          onTap: onSearchPlayers,
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              flex: 6,
+              child: _ProfileAccessCard(
+                icon: Icons.groups_2_outlined,
+                title: 'Mis equipos',
+                subtitle: 'Equipos',
+                color: const Color(0xFF14B8A6),
+                onTap: onMyTeams,
+              ),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _CardStat(label: 'PJ', value: '$totalMatches'),
-                _CardStat(label: 'G', value: '$totalGoals'),
-                _CardStat(label: 'MVP', value: '$totalMvp'),
-              ],
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 5,
+              child: _ProfileAccessCard(
+                icon: Icons.mark_email_unread_outlined,
+                title: 'Invitaciones',
+                subtitle: 'Pendientes',
+                color: const Color(0xFFF59E0B),
+                compact: true,
+                onTap: onInvitations,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _ProfileAccessCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+  final bool large;
+  final bool compact;
+  final VoidCallback onTap;
+
+  const _ProfileAccessCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    required this.onTap,
+    this.large = false,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final height = large ? 94.0 : 104.0;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(22),
+      onTap: onTap,
+      child: Container(
+        height: height,
+        padding: EdgeInsets.all(compact ? 13 : 16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(22),
+          color: color,
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.22),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: compact ? 38 : 46,
+              height: compact ? 38 : 46,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.18),
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: Icon(
+                icon,
+                color: Colors.white,
+                size: compact ? 19 : 22,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: compact ? 2 : 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: compact ? 13 : 15,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    maxLines: compact ? 1 : 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.82),
+                      fontWeight: FontWeight.w600,
+                      fontSize: compact ? 11 : 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InitialAvatarText extends StatelessWidget {
+  final String value;
+
+  const _InitialAvatarText({
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final initial = value.trim().isNotEmpty ? value.trim()[0].toUpperCase() : 'J';
+
+    return Center(
+      child: Text(
+        initial,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 34,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileBadge extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _ProfileBadge({
+    required this.icon,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: Colors.white),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _CompetitiveMetricRow extends StatelessWidget {
+  final String label;
+  final String valueText;
+  final double progress;
+
+  const _CompetitiveMetricRow({
+    required this.label,
+    required this.valueText,
+    required this.progress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final safeProgress = progress.clamp(0.0, 1.0);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+            Text(
+              valueText,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+            minHeight: 10,
+            value: safeProgress,
+            backgroundColor: theme.colorScheme.surfaceContainerHighest,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RatingBarRow extends StatelessWidget {
+  final String label;
+  final double value;
+
+  const _RatingBarRow({
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final safeValue = value.clamp(0.0, 5.0);
+
+    return Row(
+      children: [
+        SizedBox(
+          width: 95,
+          child: Text(
+            label,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ),
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: safeValue / 5,
+              minHeight: 10,
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        SizedBox(
+          width: 34,
+          child: Text(
+            safeValue.toStringAsFixed(1),
+            textAlign: TextAlign.right,
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TournamentStatusCard extends StatelessWidget {
+  final Map<String, dynamic> stat;
+
+  const _TournamentStatusCard({
+    required this.stat,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return _GlassCard(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const _SmallIconBox(icon: Icons.emoji_events_outlined),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    stat['tournament_name']?.toString() ?? 'Torneo',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      _MiniBadge(
+                        label: 'Partidos',
+                        value: '${stat['matches_played'] ?? 0}',
+                      ),
+                      _MiniBadge(
+                        label: 'Goles',
+                        value: '${stat['goals'] ?? 0}',
+                      ),
+                      _MiniBadge(
+                        label: 'MVP',
+                        value: '${stat['mvp'] ?? 0}',
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CommentCard extends StatelessWidget {
+  final Map<String, dynamic> review;
+
+  const _CommentCard({
+    required this.review,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return _GlassCard(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _ReviewerAvatar(
+              name: (review['reviewer_name'] ?? 'Jugador').toString(),
+              avatarUrl: review['reviewer_avatar_url']?.toString(),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    (review['reviewer_name'] ?? 'Jugador').toString(),
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _MiniBadge(
+                        label: 'Punt.',
+                        value: '${review['punctuality'] ?? 0}',
+                      ),
+                      _MiniBadge(
+                        label: 'Cond.',
+                        value: '${review['behavior'] ?? 0}',
+                      ),
+                      _MiniBadge(
+                        label: 'Comp.',
+                        value: '${review['commitment'] ?? 0}',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      color: theme.colorScheme.surfaceContainerHighest
+                          .withOpacity(0.8),
+                    ),
+                    child: Text(
+                      (review['comment'] == null ||
+                              review['comment'].toString().trim().isEmpty)
+                          ? 'Sin comentario'
+                          : review['comment'].toString(),
+                      style: theme.textTheme.bodyLarge?.copyWith(height: 1.35),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1181,18 +1473,7 @@ class _PremiumStatCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(
-                icon,
-                color: theme.colorScheme.onPrimaryContainer,
-              ),
-            ),
+            _SmallIconBox(icon: icon),
             const SizedBox(height: 18),
             Text(
               value,
@@ -1212,6 +1493,32 @@ class _PremiumStatCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SmallIconBox extends StatelessWidget {
+  final IconData icon;
+
+  const _SmallIconBox({
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Icon(
+        icon,
+        color: theme.colorScheme.onPrimaryContainer,
       ),
     );
   }
@@ -1313,42 +1620,6 @@ class _EmptyCard extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: Text(text),
       ),
-    );
-  }
-}
-
-class _CardStat extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _CardStat({
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w800,
-            fontSize: 16,
-          ),
-        ),
-        const SizedBox(height: 3),
-        Text(
-          label,
-          style: const TextStyle(
-            color: Colors.white70,
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
     );
   }
 }

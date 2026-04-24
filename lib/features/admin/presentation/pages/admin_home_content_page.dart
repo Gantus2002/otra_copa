@@ -39,15 +39,14 @@ class _AdminHomeContentPageState extends State<AdminHomeContentPage> {
   }
 
   Future<void> _loadData() async {
-    _safeSetState(() {
-      isLoading = true;
-    });
+    _safeSetState(() => isLoading = true);
 
     try {
       final bannersData = await SupabaseService.client
           .from('home_banners')
           .select()
-          .order('sort_order');
+          .order('sort_order')
+          .order('id', ascending: false);
 
       final adsData = await SupabaseService.client
           .from('home_ads')
@@ -67,15 +66,25 @@ class _AdminHomeContentPageState extends State<AdminHomeContentPage> {
     } catch (e) {
       _showSnackBar('Error cargando contenido: $e');
     } finally {
-      _safeSetState(() {
-        isLoading = false;
-      });
+      _safeSetState(() => isLoading = false);
     }
   }
 
   Future<void> _deleteBanner(int id) async {
     try {
-      await SupabaseService.client.from('home_banners').delete().eq('id', id);
+      final deleted = await SupabaseService.client
+          .from('home_banners')
+          .delete()
+          .eq('id', id)
+          .select();
+
+      if (deleted.isEmpty) {
+        _showSnackBar(
+          'No se eliminó el banner. Revisá permisos/RLS en Supabase.',
+        );
+        return;
+      }
+
       await _loadData();
       _showSnackBar('Banner eliminado');
     } catch (e) {
@@ -85,7 +94,19 @@ class _AdminHomeContentPageState extends State<AdminHomeContentPage> {
 
   Future<void> _deleteAd(int id) async {
     try {
-      await SupabaseService.client.from('home_ads').delete().eq('id', id);
+      final deleted = await SupabaseService.client
+          .from('home_ads')
+          .delete()
+          .eq('id', id)
+          .select();
+
+      if (deleted.isEmpty) {
+        _showSnackBar(
+          'No se eliminó el anuncio. Revisá permisos/RLS en Supabase.',
+        );
+        return;
+      }
+
       await _loadData();
       _showSnackBar('Anuncio eliminado');
     } catch (e) {
@@ -95,10 +116,18 @@ class _AdminHomeContentPageState extends State<AdminHomeContentPage> {
 
   Future<void> _toggleBannerStatus(int id, bool currentValue) async {
     try {
-      await SupabaseService.client
+      final updated = await SupabaseService.client
           .from('home_banners')
           .update({'is_active': !currentValue})
-          .eq('id', id);
+          .eq('id', id)
+          .select();
+
+      if (updated.isEmpty) {
+        _showSnackBar(
+          'No se actualizó el banner. Revisá permisos/RLS en Supabase.',
+        );
+        return;
+      }
 
       await _loadData();
     } catch (e) {
@@ -108,10 +137,18 @@ class _AdminHomeContentPageState extends State<AdminHomeContentPage> {
 
   Future<void> _toggleAdStatus(int id, bool currentValue) async {
     try {
-      await SupabaseService.client
+      final updated = await SupabaseService.client
           .from('home_ads')
           .update({'is_active': !currentValue})
-          .eq('id', id);
+          .eq('id', id)
+          .select();
+
+      if (updated.isEmpty) {
+        _showSnackBar(
+          'No se actualizó el anuncio. Revisá permisos/RLS en Supabase.',
+        );
+        return;
+      }
 
       await _loadData();
     } catch (e) {
@@ -120,7 +157,7 @@ class _AdminHomeContentPageState extends State<AdminHomeContentPage> {
   }
 
   Future<void> _openBannerForm({Map<String, dynamic>? banner}) async {
-    await Navigator.push(
+    final changed = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => AdminBannerFormPage(
@@ -131,11 +168,14 @@ class _AdminHomeContentPageState extends State<AdminHomeContentPage> {
     );
 
     if (!mounted) return;
-    await _loadData();
+
+    if (changed == true) {
+      await _loadData();
+    }
   }
 
   Future<void> _openAdForm({Map<String, dynamic>? ad}) async {
-    await Navigator.push(
+    final changed = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => AdminAdFormPage(ad: ad),
@@ -143,7 +183,10 @@ class _AdminHomeContentPageState extends State<AdminHomeContentPage> {
     );
 
     if (!mounted) return;
-    await _loadData();
+
+    if (changed == true) {
+      await _loadData();
+    }
   }
 
   String _bannerTargetText(Map<String, dynamic> banner) {
@@ -194,6 +237,12 @@ class _AdminHomeContentPageState extends State<AdminHomeContentPage> {
     );
   }
 
+  String _imageWithCacheBust(String url) {
+    if (url.trim().isEmpty) return url;
+    final separator = url.contains('?') ? '&' : '?';
+    return '$url${separator}v=${DateTime.now().millisecondsSinceEpoch}';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -234,58 +283,95 @@ class _AdminHomeContentPageState extends State<AdminHomeContentPage> {
                     )
                   else
                     ...banners.map(
-                      (banner) => Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        child: ListTile(
-                          title: Text(
-                            banner['title']?.toString().trim().isNotEmpty == true
-                                ? banner['title'].toString()
-                                : 'Banner',
-                          ),
-                          subtitle: Text(
-                            'Orden: ${banner['sort_order'] ?? 0}\n'
-                            'Activo: ${banner['is_active'] == true ? 'Sí' : 'No'}\n'
-                            '${_bannerTargetText(banner)}',
-                          ),
-                          isThreeLine: true,
-                          trailing: PopupMenuButton<String>(
-                            onSelected: (value) async {
-                              if (value == 'edit') {
-                                await _openBannerForm(banner: banner);
-                              } else if (value == 'toggle') {
-                                await _toggleBannerStatus(
-                                  banner['id'] as int,
-                                  banner['is_active'] == true,
-                                );
-                              } else if (value == 'delete') {
-                                final confirm = await _confirmDelete(
-                                  title: 'Eliminar banner',
-                                  message:
-                                      '¿Seguro que querés eliminar este banner?',
-                                );
+                      (banner) {
+                        final imageUrl =
+                            banner['image_url']?.toString().trim() ?? '';
 
-                                if (confirm == true) {
-                                  await _deleteBanner(banner['id'] as int);
-                                }
-                              }
-                            },
-                            itemBuilder: (_) => const [
-                              PopupMenuItem(
-                                value: 'edit',
-                                child: Text('Editar'),
-                              ),
-                              PopupMenuItem(
-                                value: 'toggle',
-                                child: Text('Activar / Desactivar'),
-                              ),
-                              PopupMenuItem(
-                                value: 'delete',
-                                child: Text('Eliminar'),
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (imageUrl.isNotEmpty)
+                                ClipRRect(
+                                  borderRadius: const BorderRadius.vertical(
+                                    top: Radius.circular(12),
+                                  ),
+                                  child: Image.network(
+                                    _imageWithCacheBust(imageUrl),
+                                    key: ValueKey(
+                                      '${banner['id']}_${banner['image_url']}',
+                                    ),
+                                    height: 120,
+                                    width: double.infinity,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => Container(
+                                      height: 120,
+                                      alignment: Alignment.center,
+                                      color: Colors.black12,
+                                      child: const Text(
+                                        'No se pudo cargar la imagen',
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ListTile(
+                                title: Text(
+                                  banner['title']
+                                              ?.toString()
+                                              .trim()
+                                              .isNotEmpty ==
+                                          true
+                                      ? banner['title'].toString()
+                                      : 'Banner',
+                                ),
+                                subtitle: Text(
+                                  'Orden: ${banner['sort_order'] ?? 0}\n'
+                                  'Activo: ${banner['is_active'] == true ? 'Sí' : 'No'}\n'
+                                  '${_bannerTargetText(banner)}',
+                                ),
+                                isThreeLine: true,
+                                trailing: PopupMenuButton<String>(
+                                  onSelected: (value) async {
+                                    if (value == 'edit') {
+                                      await _openBannerForm(banner: banner);
+                                    } else if (value == 'toggle') {
+                                      await _toggleBannerStatus(
+                                        banner['id'] as int,
+                                        banner['is_active'] == true,
+                                      );
+                                    } else if (value == 'delete') {
+                                      final confirm = await _confirmDelete(
+                                        title: 'Eliminar banner',
+                                        message:
+                                            '¿Seguro que querés eliminar este banner?',
+                                      );
+
+                                      if (confirm == true) {
+                                        await _deleteBanner(banner['id'] as int);
+                                      }
+                                    }
+                                  },
+                                  itemBuilder: (_) => const [
+                                    PopupMenuItem(
+                                      value: 'edit',
+                                      child: Text('Editar'),
+                                    ),
+                                    PopupMenuItem(
+                                      value: 'toggle',
+                                      child: Text('Activar / Desactivar'),
+                                    ),
+                                    PopupMenuItem(
+                                      value: 'delete',
+                                      child: Text('Eliminar'),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ],
                           ),
-                        ),
-                      ),
+                        );
+                      },
                     ),
                   const SizedBox(height: 24),
                   Row(
@@ -315,55 +401,92 @@ class _AdminHomeContentPageState extends State<AdminHomeContentPage> {
                     )
                   else
                     ...ads.map(
-                      (ad) => Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        child: ListTile(
-                          title: Text(
-                            ad['title']?.toString().trim().isNotEmpty == true
-                                ? ad['title'].toString()
-                                : 'Anuncio',
-                          ),
-                          subtitle: Text(
-                            'Activo: ${ad['is_active'] == true ? 'Sí' : 'No'}',
-                          ),
-                          trailing: PopupMenuButton<String>(
-                            onSelected: (value) async {
-                              if (value == 'edit') {
-                                await _openAdForm(ad: ad);
-                              } else if (value == 'toggle') {
-                                await _toggleAdStatus(
-                                  ad['id'] as int,
-                                  ad['is_active'] == true,
-                                );
-                              } else if (value == 'delete') {
-                                final confirm = await _confirmDelete(
-                                  title: 'Eliminar anuncio',
-                                  message:
-                                      '¿Seguro que querés eliminar este anuncio?',
-                                );
+                      (ad) {
+                        final imageUrl =
+                            ad['image_url']?.toString().trim() ?? '';
 
-                                if (confirm == true) {
-                                  await _deleteAd(ad['id'] as int);
-                                }
-                              }
-                            },
-                            itemBuilder: (_) => const [
-                              PopupMenuItem(
-                                value: 'edit',
-                                child: Text('Editar'),
-                              ),
-                              PopupMenuItem(
-                                value: 'toggle',
-                                child: Text('Activar / Desactivar'),
-                              ),
-                              PopupMenuItem(
-                                value: 'delete',
-                                child: Text('Eliminar'),
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (imageUrl.isNotEmpty)
+                                ClipRRect(
+                                  borderRadius: const BorderRadius.vertical(
+                                    top: Radius.circular(12),
+                                  ),
+                                  child: Image.network(
+                                    _imageWithCacheBust(imageUrl),
+                                    key: ValueKey(
+                                      '${ad['id']}_${ad['image_url']}',
+                                    ),
+                                    height: 100,
+                                    width: double.infinity,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => Container(
+                                      height: 100,
+                                      alignment: Alignment.center,
+                                      color: Colors.black12,
+                                      child: const Text(
+                                        'No se pudo cargar la imagen',
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ListTile(
+                                title: Text(
+                                  ad['title']
+                                              ?.toString()
+                                              .trim()
+                                              .isNotEmpty ==
+                                          true
+                                      ? ad['title'].toString()
+                                      : 'Anuncio',
+                                ),
+                                subtitle: Text(
+                                  'Activo: ${ad['is_active'] == true ? 'Sí' : 'No'}',
+                                ),
+                                trailing: PopupMenuButton<String>(
+                                  onSelected: (value) async {
+                                    if (value == 'edit') {
+                                      await _openAdForm(ad: ad);
+                                    } else if (value == 'toggle') {
+                                      await _toggleAdStatus(
+                                        ad['id'] as int,
+                                        ad['is_active'] == true,
+                                      );
+                                    } else if (value == 'delete') {
+                                      final confirm = await _confirmDelete(
+                                        title: 'Eliminar anuncio',
+                                        message:
+                                            '¿Seguro que querés eliminar este anuncio?',
+                                      );
+
+                                      if (confirm == true) {
+                                        await _deleteAd(ad['id'] as int);
+                                      }
+                                    }
+                                  },
+                                  itemBuilder: (_) => const [
+                                    PopupMenuItem(
+                                      value: 'edit',
+                                      child: Text('Editar'),
+                                    ),
+                                    PopupMenuItem(
+                                      value: 'toggle',
+                                      child: Text('Activar / Desactivar'),
+                                    ),
+                                    PopupMenuItem(
+                                      value: 'delete',
+                                      child: Text('Eliminar'),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ],
                           ),
-                        ),
-                      ),
+                        );
+                      },
                     ),
                 ],
               ),
@@ -460,7 +583,10 @@ class _AdminBannerFormPageState extends State<AdminBannerFormPage> {
   }
 
   Future<void> pickImage() async {
-    final picked = await picker.pickImage(source: ImageSource.gallery);
+    final picked = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 90,
+    );
 
     if (picked != null) {
       _safeSetState(() {
@@ -477,7 +603,10 @@ class _AdminBannerFormPageState extends State<AdminBannerFormPage> {
     await Supabase.instance.client.storage.from('home').upload(
           fileName,
           file,
-          fileOptions: const FileOptions(upsert: true),
+          fileOptions: const FileOptions(
+            upsert: false,
+            contentType: 'image/jpeg',
+          ),
         );
 
     return Supabase.instance.client.storage.from('home').getPublicUrl(fileName);
@@ -516,9 +645,6 @@ class _AdminBannerFormPageState extends State<AdminBannerFormPage> {
 
         finalTargetType = 'external';
         finalTargetValue = url;
-      } else {
-        finalTargetType = '';
-        finalTargetValue = '';
       }
 
       final payload = {
@@ -531,19 +657,25 @@ class _AdminBannerFormPageState extends State<AdminBannerFormPage> {
         'target_value': finalTargetValue,
       };
 
-      print('GUARDANDO BANNER: $payload');
+      final saved = widget.banner == null
+          ? await Supabase.instance.client
+              .from('home_banners')
+              .insert(payload)
+              .select()
+          : await Supabase.instance.client
+              .from('home_banners')
+              .update(payload)
+              .eq('id', widget.banner!['id'])
+              .select();
 
-      if (widget.banner == null) {
-        await Supabase.instance.client.from('home_banners').insert(payload);
-      } else {
-        await Supabase.instance.client
-            .from('home_banners')
-            .update(payload)
-            .eq('id', widget.banner!['id']);
+      if (saved.isEmpty) {
+        throw Exception(
+          'No se guardó ningún cambio. Revisá permisos/RLS en Supabase.',
+        );
       }
 
       if (!mounted) return;
-      Navigator.pop(context);
+      Navigator.pop(context, true);
     } catch (e) {
       _showSnackBar('Error: $e');
     } finally {
@@ -581,9 +713,10 @@ class _AdminBannerFormPageState extends State<AdminBannerFormPage> {
             decoration: const InputDecoration(labelText: 'Subtítulo'),
           ),
           const SizedBox(height: 12),
-          ElevatedButton(
+          ElevatedButton.icon(
             onPressed: pickImage,
-            child: const Text('Seleccionar imagen'),
+            icon: const Icon(Icons.image_outlined),
+            label: const Text('Seleccionar imagen'),
           ),
           if (selectedImage != null)
             Padding(
@@ -607,6 +740,7 @@ class _AdminBannerFormPageState extends State<AdminBannerFormPage> {
                 borderRadius: BorderRadius.circular(12),
                 child: Image.network(
                   imageUrl!,
+                  key: ValueKey(imageUrl),
                   height: 150,
                   width: double.infinity,
                   fit: BoxFit.cover,
@@ -623,29 +757,16 @@ class _AdminBannerFormPageState extends State<AdminBannerFormPage> {
           TextField(
             controller: sortOrderController,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              labelText: 'Orden',
-            ),
+            decoration: const InputDecoration(labelText: 'Orden'),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             value: targetType,
-            decoration: const InputDecoration(
-              labelText: 'Destino del banner',
-            ),
+            decoration: const InputDecoration(labelText: 'Destino del banner'),
             items: const [
-              DropdownMenuItem(
-                value: 'none',
-                child: Text('Sin destino'),
-              ),
-              DropdownMenuItem(
-                value: 'tournament',
-                child: Text('Abrir torneo'),
-              ),
-              DropdownMenuItem(
-                value: 'external',
-                child: Text('Link externo'),
-              ),
+              DropdownMenuItem(value: 'none', child: Text('Sin destino')),
+              DropdownMenuItem(value: 'tournament', child: Text('Abrir torneo')),
+              DropdownMenuItem(value: 'external', child: Text('Link externo')),
             ],
             onChanged: (value) {
               _safeSetState(() {
@@ -665,9 +786,7 @@ class _AdminBannerFormPageState extends State<AdminBannerFormPage> {
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               value: selectedTournamentId,
-              decoration: const InputDecoration(
-                labelText: 'Seleccionar torneo',
-              ),
+              decoration: const InputDecoration(labelText: 'Seleccionar torneo'),
               items: widget.tournaments
                   .map(
                     (t) => DropdownMenuItem<String>(
@@ -687,9 +806,7 @@ class _AdminBannerFormPageState extends State<AdminBannerFormPage> {
             const SizedBox(height: 12),
             TextField(
               controller: externalUrlController,
-              decoration: const InputDecoration(
-                labelText: 'URL externa',
-              ),
+              decoration: const InputDecoration(labelText: 'URL externa'),
             ),
           ],
           const SizedBox(height: 12),
@@ -757,7 +874,10 @@ class _AdminAdFormPageState extends State<AdminAdFormPage> {
   }
 
   Future<void> pickImage() async {
-    final picked = await picker.pickImage(source: ImageSource.gallery);
+    final picked = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 90,
+    );
 
     if (picked != null) {
       _safeSetState(() {
@@ -774,7 +894,10 @@ class _AdminAdFormPageState extends State<AdminAdFormPage> {
     await Supabase.instance.client.storage.from('home').upload(
           fileName,
           file,
-          fileOptions: const FileOptions(upsert: true),
+          fileOptions: const FileOptions(
+            upsert: false,
+            contentType: 'image/jpeg',
+          ),
         );
 
     return Supabase.instance.client.storage.from('home').getPublicUrl(fileName);
@@ -800,17 +923,22 @@ class _AdminAdFormPageState extends State<AdminAdFormPage> {
         'is_active': isActive,
       };
 
-      if (widget.ad == null) {
-        await Supabase.instance.client.from('home_ads').insert(payload);
-      } else {
-        await Supabase.instance.client
-            .from('home_ads')
-            .update(payload)
-            .eq('id', widget.ad!['id']);
+      final saved = widget.ad == null
+          ? await Supabase.instance.client.from('home_ads').insert(payload).select()
+          : await Supabase.instance.client
+              .from('home_ads')
+              .update(payload)
+              .eq('id', widget.ad!['id'])
+              .select();
+
+      if (saved.isEmpty) {
+        throw Exception(
+          'No se guardó ningún cambio. Revisá permisos/RLS en Supabase.',
+        );
       }
 
       if (!mounted) return;
-      Navigator.pop(context);
+      Navigator.pop(context, true);
     } catch (e) {
       _showSnackBar('Error: $e');
     } finally {
@@ -840,9 +968,10 @@ class _AdminAdFormPageState extends State<AdminAdFormPage> {
             decoration: const InputDecoration(labelText: 'Título'),
           ),
           const SizedBox(height: 12),
-          ElevatedButton(
+          ElevatedButton.icon(
             onPressed: pickImage,
-            child: const Text('Seleccionar imagen'),
+            icon: const Icon(Icons.image_outlined),
+            label: const Text('Seleccionar imagen'),
           ),
           if (selectedImage != null)
             Padding(
@@ -866,6 +995,7 @@ class _AdminAdFormPageState extends State<AdminAdFormPage> {
                 borderRadius: BorderRadius.circular(12),
                 child: Image.network(
                   imageUrl!,
+                  key: ValueKey(imageUrl),
                   height: 120,
                   width: double.infinity,
                   fit: BoxFit.cover,
