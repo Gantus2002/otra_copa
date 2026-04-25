@@ -43,6 +43,7 @@ class TeamService {
           'code': code,
           'logo_url': logoUrl,
           'owner_id': user.id,
+          'status': 'active',
         })
         .select()
         .single();
@@ -53,6 +54,7 @@ class TeamService {
       'team_id': teamId,
       'user_id': user.id,
       'role': 'owner',
+      'status': 'active',
     });
 
     return teamId;
@@ -97,13 +99,13 @@ class TeamService {
 
     final deleted = await _client
         .from('teams')
-        .delete()
+        .update({'status': 'archived'})
         .eq('id', teamId)
         .eq('owner_id', user.id)
         .select();
 
     if (deleted.isEmpty) {
-      throw Exception('No se pudo borrar el equipo. Solo el dueño puede borrarlo.');
+      throw Exception('No se pudo archivar el equipo. Solo el dueño puede hacerlo.');
     }
   }
 
@@ -114,30 +116,41 @@ class TeamService {
 
     final response = await _client
         .from('team_members')
-        .select('team_id, role, teams(*)')
+        .select('team_id, role, status, teams(*)')
         .eq('user_id', user.id)
+        .eq('status', 'active')
         .order('created_at', ascending: false);
 
     return List<Map<String, dynamic>>.from(response)
         .where((item) => item['teams'] != null)
+        .where((item) {
+          final team = Map<String, dynamic>.from(item['teams']);
+          return (team['status'] ?? 'active') == 'active';
+        })
         .map((item) {
-      final team = Map<String, dynamic>.from(item['teams']);
-      team['my_role'] = item['role'];
-      return team;
-    }).toList();
+          final team = Map<String, dynamic>.from(item['teams']);
+          team['my_role'] = item['role'];
+          return team;
+        })
+        .toList();
   }
 
   Future<Map<String, dynamic>?> getTeamById(int teamId) async {
-    return await _client.from('teams').select().eq('id', teamId).maybeSingle();
+    return await _client
+        .from('teams')
+        .select()
+        .eq('id', teamId)
+        .maybeSingle();
   }
 
   Future<List<Map<String, dynamic>>> getTeamMembers(int teamId) async {
     final response = await _client
         .from('team_members')
         .select(
-          'id, team_id, user_id, role, created_at, profiles(full_name, avatar_url, public_code)',
+          'id, team_id, user_id, role, status, created_at, profiles(full_name, avatar_url, public_code)',
         )
         .eq('team_id', teamId)
+        .eq('status', 'active')
         .order('created_at', ascending: true);
 
     return List<Map<String, dynamic>>.from(response);
@@ -156,6 +169,7 @@ class TeamService {
         .eq('team_id', teamId)
         .eq('user_id', user.id)
         .eq('role', 'owner')
+        .eq('status', 'active')
         .maybeSingle();
 
     return owner != null;
@@ -196,7 +210,7 @@ class TeamService {
 
     await _client
         .from('team_members')
-        .delete()
+        .update({'status': 'removed'})
         .eq('team_id', teamId)
         .eq('user_id', userId)
         .neq('role', 'owner');
@@ -236,12 +250,13 @@ class TeamService {
 
     final existingMember = await _client
         .from('team_members')
-        .select('id')
+        .select('id, status')
         .eq('team_id', teamId)
         .eq('user_id', invitedUserId)
         .maybeSingle();
 
-    if (existingMember != null) {
+    if (existingMember != null &&
+        (existingMember['status'] ?? '').toString() == 'active') {
       throw Exception('Ese jugador ya forma parte del equipo');
     }
 
@@ -389,7 +404,7 @@ class TeamService {
 
     final alreadyMember = await _client
         .from('team_members')
-        .select('id')
+        .select('id, status')
         .eq('team_id', teamId)
         .eq('user_id', user.id)
         .maybeSingle();
@@ -399,7 +414,16 @@ class TeamService {
         'team_id': teamId,
         'user_id': user.id,
         'role': 'member',
+        'status': 'active',
       });
+    } else {
+      await _client
+          .from('team_members')
+          .update({
+            'role': 'member',
+            'status': 'active',
+          })
+          .eq('id', alreadyMember['id']);
     }
 
     await _client

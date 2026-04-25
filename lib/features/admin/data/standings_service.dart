@@ -12,43 +12,43 @@ class StandingsService {
 
     final tournamentTeamsResponse = await SupabaseService.client
         .from('tournament_teams')
-        .select()
-        .eq('tournament_id', tournamentId);
+        .select('*, teams(id, name, logo_url, code, city, country)')
+        .eq('tournament_id', tournamentId)
+        .order('id');
 
     final tournamentTeams =
         List<Map<String, dynamic>>.from(tournamentTeamsResponse);
-
-    final realTeamIds = tournamentTeams
-        .map((e) => e['team_id'])
-        .whereType<int>()
-        .toSet()
-        .toList();
-
-    final realTeams = realTeamIds.isEmpty
-        ? <Map<String, dynamic>>[]
-        : List<Map<String, dynamic>>.from(
-            await SupabaseService.client
-                .from('teams')
-                .select('id, name, logo_url')
-                .inFilter('id', realTeamIds),
-          );
 
     final Map<int, Map<String, dynamic>> table = {};
 
     for (final tournamentTeam in tournamentTeams) {
       final tournamentTeamId = tournamentTeam['id'] as int;
-      final realTeamId = tournamentTeam['team_id'];
+      final realTeam = tournamentTeam['teams'];
 
-      final realTeam = realTeams.firstWhere(
-        (team) => team['id'] == realTeamId,
-        orElse: () => <String, dynamic>{},
-      );
+      String name = 'Equipo';
+      String? logoUrl;
+      String code = '';
+      String city = '';
+      String country = '';
+
+      if (realTeam is Map) {
+        name = (realTeam['name'] ?? 'Equipo').toString();
+        logoUrl = realTeam['logo_url']?.toString();
+        code = (realTeam['code'] ?? '').toString();
+        city = (realTeam['city'] ?? '').toString();
+        country = (realTeam['country'] ?? '').toString();
+      } else {
+        name = (tournamentTeam['name'] ?? 'Equipo').toString();
+      }
 
       table[tournamentTeamId] = {
         'tournament_team_id': tournamentTeamId,
-        'team_id': realTeamId,
-        'name': realTeam['name'] ?? tournamentTeam['name'] ?? 'Equipo',
-        'logo_url': realTeam['logo_url'],
+        'team_id': tournamentTeam['team_id'],
+        'name': name,
+        'logo_url': logoUrl,
+        'code': code,
+        'city': city,
+        'country': country,
         'pj': 0,
         'pg': 0,
         'pe': 0,
@@ -64,7 +64,9 @@ class StandingsService {
       final homeId = match['home_team_id'];
       final awayId = match['away_team_id'];
 
-      if (!table.containsKey(homeId) || !table.containsKey(awayId)) continue;
+      if (!table.containsKey(homeId) || !table.containsKey(awayId)) {
+        continue;
+      }
 
       final homeScore = (match['home_score'] ?? 0) as int;
       final awayScore = (match['away_score'] ?? 0) as int;
@@ -109,7 +111,10 @@ class StandingsService {
       final dgCompare = (b['dg'] as int).compareTo(a['dg'] as int);
       if (dgCompare != 0) return dgCompare;
 
-      return (b['gf'] as int).compareTo(a['gf'] as int);
+      final gfCompare = (b['gf'] as int).compareTo(a['gf'] as int);
+      if (gfCompare != 0) return gfCompare;
+
+      return (a['name'] as String).compareTo(b['name'] as String);
     });
 
     return standings;
